@@ -1,0 +1,30 @@
+{
+  "name": "fitbeacon",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "app",
+    "api",
+    "web"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "start": "npm run start --workspace @fitbeacon/app",
+    "android": "npm run android --workspace @fitbeacon/app",
+    "lint": "eslint app api web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "react-native-worklets": "0.13.0",
+    "typescript-eslint": "^8.72.0"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+**/node_modules/
+.expo/
+dist/
+coverage/
+web/dist/
+api/dist/
+android/
+ios/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
