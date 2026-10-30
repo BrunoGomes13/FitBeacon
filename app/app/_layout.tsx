@@ -14,6 +14,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '../src/theme/ThemeProvider';
 import { themes } from '../src/theme';
 import { StudentBeaconRuntime } from '../src/student/StudentBeaconRuntime';
+import { NativeErrorBoundary } from '../src/components/NativeErrorBoundary';
 import { useAppStore } from '../src/state/store';
 
 export default function RootLayout() {
@@ -67,15 +68,17 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider theme={theme}>
-          <StudentBeaconRuntime>
-            <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-            <Stack
-              screenOptions={{
-                contentStyle: { backgroundColor: theme.colors.background },
-                headerShown: false,
-              }}
-            />
-          </StudentBeaconRuntime>
+          <NativeErrorBoundary theme={theme}>
+            <StudentBeaconRuntime>
+              <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+              <Stack
+                screenOptions={{
+                  contentStyle: { backgroundColor: theme.colors.background },
+                  headerShown: false,
+                }}
+              />
+            </StudentBeaconRuntime>
+          </NativeErrorBoundary>
         </ThemeProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

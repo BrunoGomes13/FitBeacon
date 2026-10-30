@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { apiFetch, ApiError } from '../lib/api';
 import type { Area, Equipment, Exercise } from '../lib/types';
 import { EquipmentEditorForm, toEquipmentPayload, type EquipmentFormValues } from './EquipmentEditorForm';
+import { useDeleteQueue } from './DeleteQueueProvider';
 import { EmptyState, ErrorState, FormField, LoadingState, PageTitle } from './shared';
 
 type EntityKind = 'equipment' | 'areas' | 'exercises';
@@ -57,7 +58,7 @@ function AreaEditor({ value, onSave, saving }: { value?: Area; onSave: (value: A
       <FormField error={errors.description?.message} htmlFor="area-description" label="Descrição">
         <textarea className="field min-h-24" id="area-description" {...register('description')} />
       </FormField>
-      <button className="btn btn-primary w-fit" disabled={saving} type="submit">{saving ? 'Salvando…' : 'Salvar área'}</button>
+      <div className="mobile-save-bar"><button className="btn btn-primary w-full" disabled={saving} type="submit">{saving ? 'Salvando…' : 'Salvar área'}</button></div>
     </form>
   );
 }
@@ -91,12 +92,12 @@ function ExerciseEditor({ value, onSave, saving }: { value?: Exercise; onSave: (
       <FormField error={errors.mistakesText?.message} htmlFor="exercise-mistakes" label="Erros comuns (um por linha)">
         <textarea className="field min-h-24" id="exercise-mistakes" {...register('mistakesText')} />
       </FormField>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField error={errors.recommendedSets?.message} htmlFor="exercise-sets" label="Séries recomendadas">
-          <input className="field" id="exercise-sets" type="number" {...register('recommendedSets')} />
+          <input className="field" id="exercise-sets" inputMode="numeric" type="number" {...register('recommendedSets')} />
         </FormField>
         <FormField error={errors.recommendedReps?.message} htmlFor="exercise-reps" label="Repetições recomendadas">
-          <input className="field" id="exercise-reps" type="number" {...register('recommendedReps')} />
+          <input className="field" id="exercise-reps" inputMode="numeric" type="number" {...register('recommendedReps')} />
         </FormField>
       </div>
       {(['imageUrl', 'videoUrl', 'instructionUrl'] as const).map((field) => (
@@ -104,13 +105,14 @@ function ExerciseEditor({ value, onSave, saving }: { value?: Exercise; onSave: (
           <input className="field" id={`exercise-${field}`} type="url" {...register(field)} />
         </FormField>
       ))}
-      <button className="btn btn-primary w-fit" disabled={saving} type="submit">{saving ? 'Salvando…' : 'Salvar exercício'}</button>
+      <div className="mobile-save-bar"><button className="btn btn-primary w-full" disabled={saving} type="submit">{saving ? 'Salvando…' : 'Salvar exercício'}</button></div>
     </form>
   );
 }
 
 export function ManagementPage({ kind }: { kind: EntityKind }) {
   const client = useQueryClient();
+  const { enqueue, pendingIds } = useDeleteQueue();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export function ManagementPage({ kind }: { kind: EntityKind }) {
   });
 
   const dataQuery = kind === 'equipment' ? equipmentQuery : kind === 'areas' ? areaQuery : exerciseQuery;
-  const rows = dataQuery.data?.data ?? [];
+  const rows = (dataQuery.data?.data ?? []).filter((row) => !pendingIds.has(`${kind}:${row._id}`));
   const selected = rows.find((row) => row._id === selectedId);
   const upsert = useMutation({
     mutationFn: async (payload: unknown) => {
@@ -154,15 +156,6 @@ export function ManagementPage({ kind }: { kind: EntityKind }) {
         : error instanceof Error ? error.message : 'Não foi possível salvar.');
     },
   });
-  const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`${paths[kind]}/${id}`, { method: 'DELETE' }),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ['admin'] });
-      setErrorMessage(null);
-    },
-    onError: (error) => setErrorMessage(error instanceof Error ? error.message : 'Não foi possível excluir.'),
-  });
-
   const onSave = async (value: EquipmentFormValues | AreaForm | ExerciseForm): Promise<void> => {
     if (kind === 'equipment') {
       upsert.mutate(toEquipmentPayload(value as EquipmentFormValues));
@@ -204,7 +197,7 @@ export function ManagementPage({ kind }: { kind: EntityKind }) {
       />
       {errorMessage ? <p className="mb-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger" role="alert">{errorMessage}</p> : null}
       {creating || selectedId ? (
-        <section className="panel mb-6 p-5" aria-labelledby="editor-heading">
+        <section className="management-editor panel mb-6 p-5" aria-labelledby="editor-heading">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="m-0 text-lg font-semibold" id="editor-heading">{selectedId ? `Editar ${titles[kind].toLowerCase().slice(0, -1)}` : `Novo cadastro`}</h2>
             <button className="btn btn-ghost" onClick={() => { setCreating(false); setSelectedId(null); setErrorMessage(null); }} type="button">Cancelar</button>
@@ -252,10 +245,10 @@ export function ManagementPage({ kind }: { kind: EntityKind }) {
                           <button aria-label={`Editar ${name}`} className="btn btn-secondary min-h-10 px-3" onClick={() => { setCreating(false); setSelectedId(row._id); setErrorMessage(null); }} type="button">
                             <Pencil size={15} aria-hidden="true" />
                           </button>
-                          <button aria-label={`Excluir ${name}`} className="btn btn-danger min-h-10 px-3" onClick={() => {
-                            if (window.confirm(`Deseja excluir “${name}”?`)) remove.mutate(row._id);
+                          <button aria-label={`Excluir ${name}`} className="btn btn-danger px-3" onClick={() => {
+                            enqueue(kind, row._id, name);
                           }} type="button">
-                            <Trash2 size={15} aria-hidden="true" />
+                            <Trash2 size={18} aria-hidden="true" />
                           </button>
                         </div>
                       </td>
@@ -268,20 +261,20 @@ export function ManagementPage({ kind }: { kind: EntityKind }) {
               {rows.map((row) => (
                 <article className="rounded-md border border-border p-4" key={`${row._id}-mobile`}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="m-0 truncate font-medium">{'name' in row ? row.name : ''}</h3>
-                      <p className="mb-0 mt-1 truncate text-sm text-muted">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="m-0 break-words font-medium">{'name' in row ? row.name : ''}</h3>
+                      <p className="mb-0 mt-1 break-words text-sm text-muted">
                         {kind === 'equipment'
-                          ? `${(row as Equipment).beacon.major}/${(row as Equipment).beacon.minor}`
+                          ? `${(row as Equipment).beacon.uuid} · ${(row as Equipment).beacon.major}/${(row as Equipment).beacon.minor}`
                           : kind === 'areas' ? (row as Area).description || 'Sem descrição' : (row as Exercise).muscleGroup}
                       </p>
                       <span className="mt-2 inline-block text-xs text-muted">{row.isActive ? 'Ativo' : 'Inativo'}</span>
                     </div>
                     <div className="flex gap-2">
-                      <button aria-label={`Editar ${'name' in row ? row.name : ''}`} className="btn btn-secondary min-h-10 px-3" onClick={() => { setCreating(false); setSelectedId(row._id); }} type="button"><Pencil size={15} /></button>
-                      <button aria-label={`Excluir ${'name' in row ? row.name : ''}`} className="btn btn-danger min-h-10 px-3" onClick={() => {
-                        if (window.confirm(`Deseja excluir “${'name' in row ? row.name : ''}”?`)) remove.mutate(row._id);
-                      }} type="button"><Trash2 size={15} /></button>
+                      <button aria-label={`Editar ${'name' in row ? row.name : ''}`} className="btn btn-secondary px-3" onClick={() => { setCreating(false); setSelectedId(row._id); }} type="button"><Pencil size={18} /></button>
+                      <button aria-label={`Excluir ${'name' in row ? row.name : ''}`} className="btn btn-danger px-3" onClick={() => {
+                        enqueue(kind, row._id, 'name' in row ? row.name : '');
+                      }} type="button"><Trash2 size={18} /></button>
                     </div>
                   </div>
                 </article>

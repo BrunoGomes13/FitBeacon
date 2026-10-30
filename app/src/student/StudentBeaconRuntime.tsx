@@ -12,7 +12,8 @@ import * as Haptics from 'expo-haptics';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppState, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchEquipmentByBeacon, recordTrainingSession } from '../api/services';
+import { fetchEquipmentByBeacon } from '../api/services';
+import { useSessionOutbox } from '../api/useSessionOutbox';
 import type {
   BeaconEvent,
   BeaconIdentity,
@@ -66,9 +67,15 @@ function createClientSessionId(): string {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error
+  if (!(error instanceof Error)) {
+    return 'Não foi possível iniciar a detecção de aparelhos.';
+  }
+  if (/network|fetch|timeout|offline|connection/i.test(error.message)) {
+    return 'Sem conexão com a internet. A sessão foi mantida no aparelho.';
+  }
+  return /não|nao|falha|imposs|sessão|sessao|bluetooth|permissão/i.test(error.message)
     ? error.message
-    : 'Não foi possível iniciar a detecção de aparelhos.';
+    : 'Não foi possível concluir a operação neste aparelho.';
 }
 
 function formatDuration(durationMs: number): string {
@@ -76,6 +83,10 @@ function formatDuration(durationMs: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return minutes > 0 ? `${minutes} min ${seconds} s` : `${seconds} s`;
+}
+
+function isScannerScreen(pathname: string): boolean {
+  return pathname === '/home' || pathname === '/equipment' || pathname === '/diagnostics';
 }
 
 export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
@@ -86,6 +97,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const user = useAppStore((state) => state.user);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const trackingConsent = useAppStore((state) => state.trackingConsent);
+  const { outbox, sync: syncOutbox } = useSessionOutbox(user?.id);
   const developerMode = useAppStore((state) => state.developerMode);
   const useMockBeacons = useAppStore((state) => state.useMockBeacons);
   const isMock = developerMode && useMockBeacons;
@@ -97,6 +109,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const machineRef = useRef(new BeaconStateMachine());
   const processEventsRef = useRef<(events: BeaconEvent[]) => void>(() => {});
   const syncTickerRef = useRef<() => void>(() => {});
+  const syncScannerRef = useRef<() => void>(() => {});
   const sessionByKey = useRef(new Map<string, SessionMeta>());
   const equipmentByKey = useRef(
     new Map<string, Awaited<ReturnType<typeof fetchEquipmentByBeacon>>>(),
@@ -109,7 +122,32 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     pathnameRef.current = pathname;
+    syncScannerRef.current();
   }, [pathname]);
+
+  useEffect(() => {
+    if (!hasHydrated || !outbox || trackingConsent) return;
+    void outbox.clear().catch(() => {
+      outbox.reportError(
+        new Error('Não foi possível limpar as sessões salvas após a revogação do consentimento.'),
+      );
+    });
+  }, [hasHydrated, outbox, trackingConsent]);
+
+  useEffect(() => {
+    if (!hasHydrated || !user || !trackingConsent || !outbox) return;
+    let cancelled = false;
+    void outbox.initialize()
+      .then(() => (cancelled ? 0 : syncOutbox()))
+      .catch(() => {
+        outbox.reportError(
+          new Error('Não foi possível carregar ou sincronizar as sessões salvas neste aparelho.'),
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydrated, outbox, syncOutbox, trackingConsent, user]);
 
   useEffect(() => {
     if (!hasHydrated || !user || !trackingConsent) {
@@ -134,6 +172,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     let ticker: ReturnType<typeof setInterval> | null = null;
     let appState = AppState.currentState;
     let processEvents: (events: BeaconEvent[]) => void = () => {};
+    let scannerActive = false;
+    let scannerTransition: Promise<void> = Promise.resolve();
 
     const updateCountdown = (): void => {
       setSessionFeedback((current) => {
@@ -282,6 +322,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             continue;
           }
 
+          let droppedOldest = false;
           void ensureEquipment(meta.beacon)
             .then(async (equipment) => {
               const activeWorkout = useAppStore.getState().activeWorkout;
@@ -290,7 +331,10 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
                   ? activeWorkout.sets
                   : [];
 
-              await recordTrainingSession({
+              if (!outbox) {
+                throw new Error('Não foi possível acessar a fila de sessões deste usuário.');
+              }
+              const droppedId = await outbox.enqueue({
                 clientSessionId: meta.clientSessionId,
                 equipmentId: equipment._id,
                 areaId: equipment.areaId._id,
@@ -298,14 +342,34 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
                 endedAt: new Date(event.session.endedAt).toISOString(),
                 sets,
               });
-              await queryClientFromProvider.invalidateQueries({
-                queryKey: ['sessions'],
-              });
-
+              droppedOldest = droppedId !== null;
               if (useAppStore.getState().activeWorkout?.clientSessionId === meta.clientSessionId) {
                 useAppStore.getState().clearWorkout();
               }
-              if (developerMode) {
+
+              await syncOutbox();
+              const outboxSnapshot = outbox.getSnapshot();
+              const failedSession = outboxSnapshot.failures.find(
+                (failure) => failure.clientSessionId === meta.clientSessionId,
+              );
+              if (droppedId) {
+                setSessionFeedback({
+                  tone: 'info',
+                  message: 'Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada para salvar a atual.',
+                });
+              } else if (failedSession) {
+                setSessionFeedback({
+                  tone: 'error',
+                  message: `A sessão foi salva, mas não pôde ser registrada: ${failedSession.reason}`,
+                });
+              } else if (outboxSnapshot.pendingCount > 0) {
+                setSessionFeedback({
+                  tone: outboxSnapshot.errorMessage ? 'error' : 'info',
+                  message: outboxSnapshot.errorMessage
+                    ? `Sessão salva no aparelho. ${outboxSnapshot.errorMessage}`
+                    : 'Sessão salva no aparelho e aguardando sincronização.',
+                });
+              } else if (developerMode) {
                 setSessionFeedback({
                   tone: 'success',
                   message: `Sessão registrada: ${equipment.name} · ${formatDuration(event.session.durationMs)}.`,
@@ -315,12 +379,14 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             .catch((error: unknown) => {
               if (!cancelled) {
                 const detail = errorMessage(error);
-                setMessage(
-                  `Não foi possível sincronizar o treino: ${detail}`,
+                outbox?.reportError(
+                  new Error('Não foi possível salvar ou sincronizar a sessão neste aparelho.'),
                 );
                 setSessionFeedback({
                   tone: 'error',
-                  message: `Falha ao enviar a sessão: ${detail}`,
+                  message: droppedOldest
+                    ? `Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada. Não foi possível sincronizar agora: ${detail}`
+                    : `Não foi possível salvar a sessão: ${detail}`,
                 });
               }
             });
@@ -355,64 +421,102 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       appState = nextState;
       if (nextState === 'active') {
         runTick();
+        void syncOutbox().catch(() => undefined);
       }
       syncTicker();
+      void syncScanner();
     });
 
-    const start = async (): Promise<void> => {
-      try {
-        if (!isMock) {
-          const permission = await requestBeaconPermissions();
+    const shouldScan = (): boolean =>
+      !cancelled &&
+      appState === 'active' &&
+      isScannerScreen(pathnameRef.current);
 
+    const startScanner = async (): Promise<void> => {
+      if (!isMock) {
+        const permission = await requestBeaconPermissions();
+
+        if (!shouldScan()) {
+          return;
+        }
+
+        if (permission.status !== 'granted' || permission.message) {
+          throw new Error(
+            permission.message ?? 'As permissões de Bluetooth foram negadas.',
+          );
+        }
+      }
+
+      await provider.start(
+        (reading) => {
           if (cancelled) {
             return;
           }
 
-          if (permission.status !== 'granted' || permission.message) {
-            throw new Error(
-              permission.message ?? 'As permissões de Bluetooth foram negadas.',
-            );
+          const events = machine.update(reading);
+          processEvents(events);
+          setSnapshot(machine.getSnapshot());
+          syncTicker();
+        },
+        (providerState) => {
+          if (cancelled) {
+            return;
           }
-        }
 
-        await provider.start(
-          (reading) => {
-            if (cancelled) {
-              return;
-            }
+          if (providerState.status === 'error') {
+            setStatus('error');
+            setMessage(providerState.message);
+            return;
+          }
 
-            const events = machine.update(reading);
-            processEvents(events);
+          if (providerState.status === 'scanning') {
+            setMessage(null);
             setSnapshot(machine.getSnapshot());
-            syncTicker();
-          },
-          (providerState) => {
-            if (cancelled) {
-              return;
-            }
-
-            if (providerState.status === 'error') {
-              setStatus('error');
-              setMessage(providerState.message);
-              return;
-            }
-
-            if (providerState.status === 'scanning') {
-              setMessage(null);
-              setSnapshot(emptySnapshot);
-            }
-            setStatus(providerState.status === 'scanning' ? 'scanning' : 'idle');
-          },
-        );
-      } catch (error) {
-        if (!cancelled) {
-          setStatus('error');
-          setMessage(errorMessage(error));
-        }
-      }
+          }
+          setStatus(providerState.status === 'scanning' ? 'scanning' : 'idle');
+        },
+      );
     };
 
-    void start();
+    const syncScanner = (): Promise<void> => {
+      scannerTransition = scannerTransition.then(async () => {
+        const wanted = shouldScan();
+        if (wanted && !scannerActive) {
+          scannerActive = true;
+          setStatus('loading');
+          try {
+            await startScanner();
+            if (!shouldScan()) {
+              scannerActive = false;
+              await provider.stop();
+              if (!cancelled) setStatus('idle');
+            }
+          } catch (error) {
+            scannerActive = false;
+            if (!cancelled) {
+              setStatus('error');
+              setMessage(errorMessage(error));
+            }
+          }
+        } else if (!wanted && scannerActive) {
+          scannerActive = false;
+          try {
+            await provider.stop();
+          } catch {
+            if (!cancelled) {
+              setStatus('error');
+              setMessage('Não foi possível interromper a busca por aparelhos.');
+            }
+          }
+          if (!cancelled) setStatus('idle');
+        }
+      });
+      return scannerTransition;
+    };
+    syncScannerRef.current = () => {
+      void syncScanner();
+    };
+    void syncScanner();
 
     return () => {
       cancelled = true;
@@ -421,12 +525,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       providerRef.current = null;
       processEventsRef.current = () => {};
       syncTickerRef.current = () => {};
-      void provider.stop().catch((error: unknown) => {
-        console.error(
-          'Falha ao encerrar o scanner de aparelhos:',
-          errorMessage(error),
-        );
-      });
+      syncScannerRef.current = () => {};
+      void syncScanner();
     };
   }, [
     hasHydrated,
@@ -434,6 +534,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     isMock,
     queryClientFromProvider,
     router,
+    outbox,
+    syncOutbox,
     trackingConsent,
     user,
   ]);

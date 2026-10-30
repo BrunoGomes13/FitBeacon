@@ -13,6 +13,7 @@ import {
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
+import { SessionOutboxPanel } from '../src/student/SessionOutboxPanel';
 import { fetchTrainingSessions } from '../src/api/services';
 import type { TrainingSession } from '../src/api/schemas';
 import { useAppStore } from '../src/state/store';
@@ -30,6 +31,7 @@ export default function HistoryScreen() {
   const theme = useTheme();
   const router = useRouter();
   const user = useAppStore((state) => state.user);
+  const consent = useAppStore((state) => state.trackingConsent);
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const [cutoff, setCutoff] = useState(0);
   const sessionsQuery = useQuery({
@@ -50,6 +52,7 @@ export default function HistoryScreen() {
           subtitle="Seus aparelhos, séries e tempo de treino."
           title="Histórico de treinos"
         />
+        <SessionOutboxPanel consent={consent} ownerId={user?.id} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
           <Chip
             accessibilityLabel="Filtrar todos os treinos"

@@ -1,12 +1,14 @@
+import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, Clock3, Dumbbell, Users } from 'lucide-react';
 import { useState } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { apiFetch } from '../lib/api';
 import { defaultPeriod, formatCount, formatDuration, formatPercent } from '../lib/format';
 import type { ReportSummary } from '../lib/types';
 import { PeriodFilter } from '../components/PeriodFilter';
 import { EmptyState, ErrorState, LoadingState, PageTitle } from '../components/shared';
+
+const UsageChart = lazy(() => import('../components/UsageChart').then((module) => ({ default: module.UsageChart })));
 
 type Kpi = { label: string; value: string; icon: typeof Activity; note: string };
 
@@ -35,10 +37,10 @@ function RankedList({ title, rows }: { title: string; rows: ReportSummary['ranki
       <h2 className="mb-4 mt-0 text-lg font-semibold">{title}</h2>
       <ol className="m-0 grid list-none gap-3 p-0">
         {rows.map((row, index) => (
-          <li className="flex items-center justify-between gap-3" key={row._id}>
-            <span className="flex min-w-0 items-center gap-3">
+          <li className="flex min-w-0 items-center justify-between gap-3" key={row._id}>
+            <span className="flex min-w-0 flex-1 items-center gap-3">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-raised text-xs font-semibold text-muted">{index + 1}</span>
-              <span className="truncate">{row.name}</span>
+              <span className="min-w-0 truncate">{row.name}</span>
             </span>
             <span className="shrink-0 text-sm text-muted">{formatCount(row.sessions)} sessões</span>
           </li>
@@ -81,19 +83,9 @@ export function DashboardPage() {
               <h2 className="m-0 text-lg font-semibold">Uso por hora</h2>
               <p className="mb-0 mt-1 text-xs text-muted">Horário UTC · sessões iniciadas</p>
             </div>
-            {summaryQuery.data.hourlyUsage.length === 0 ? <EmptyState>Nenhuma sessão no período.</EmptyState> : (
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={summaryQuery.data.hourlyUsage} margin={{ top: 8, right: 12, bottom: 8, left: -16 }}>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="_id" tickFormatter={(hour: number) => `${String(hour).padStart(2, '0')}h`} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
-                    <YAxis allowDecimals={false} tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
-                    <Tooltip contentStyle={{ background: 'var(--surface)', borderColor: 'var(--border)', borderRadius: 'var(--radius-sm)', color: 'var(--text)' }} labelFormatter={(hour) => `${String(hour).padStart(2, '0')}:00 UTC`} />
-                    <Bar dataKey="sessions" name="Sessões" fill="var(--primary)" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <Suspense fallback={<div className="h-72 animate-pulse rounded-md bg-surface-raised" />}>
+              <UsageChart rows={summaryQuery.data.hourlyUsage} />
+            </Suspense>
           </section>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <RankedList title="Equipamentos mais utilizados" rows={summaryQuery.data.rankings.equipment.slice(0, 5)} />

@@ -361,7 +361,9 @@ describe('sessões em lote', () => {
 describe('relatórios administrativos', () => {
   beforeEach(async () => {
     const now = new Date();
-    const recent = new Date(now.getTime() - 60 * 60 * 1000);
+    const recent = new Date(now);
+    recent.setUTCMinutes(0, 0, 0);
+    recent.setUTCHours(recent.getUTCHours() - 1);
     await UsageSession.create([
       {
         clientSessionId: randomUUID(),

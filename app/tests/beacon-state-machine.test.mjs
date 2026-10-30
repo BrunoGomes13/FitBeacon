@@ -40,6 +40,33 @@ test('enters after three consecutive readings above the entry threshold', () => 
   assert.equal(machine.getSnapshot().zoneState, 'inside');
 });
 
+test('requires a signal strictly stronger than the exact -70 dBm entry threshold', () => {
+  const machine = createMachine();
+
+  machine.update(reading(3, -70, 1_000));
+  machine.update(reading(3, -70, 1_500));
+  const boundaryEvents = machine.update(reading(3, -70, 2_000));
+
+  assert.equal(boundaryEvents.some((event) => event.type === 'zone-enter'), false);
+  assert.equal(machine.getSnapshot().activeBeaconKey, null);
+  assert.equal(
+    enter(machine, 3, -69, 2_500).some((event) => event.type === 'zone-enter'),
+    true,
+  );
+});
+
+test('does not exit at exactly -78 dBm, but exits below the threshold', () => {
+  const machine = createMachine();
+  enter(machine, 3, -65);
+
+  const boundaryEvents = machine.update(reading(3, -78, 2_500));
+  assert.equal(boundaryEvents.some((event) => event.type === 'zone-exit'), false);
+  assert.equal(machine.getSnapshot().activeBeaconKey, beacon(3).key);
+
+  const exitEvents = machine.update(reading(3, -79, 3_000));
+  assert.equal(exitEvents.some((event) => event.type === 'zone-exit'), true);
+});
+
 test('exits below the exit threshold and discards a short session', () => {
   const machine = createMachine();
   enter(machine, 3);
@@ -71,6 +98,21 @@ test('switches beacons only after a six dB advantage persists for two seconds', 
     true,
   );
   assert.equal(machine.getSnapshot().activeBeaconKey, beacon(4).key);
+});
+
+test('switches when the challenger has exactly a six dB advantage for two seconds', () => {
+  const machine = createMachine();
+  enter(machine, 3, -66);
+  enter(machine, 4, -60, 2_000);
+
+  assert.equal(machine.getSnapshot().activeBeaconKey, beacon(3).key);
+  assert.equal(machine.tick(4_999).some((event) => event.type === 'session-start'), false);
+  assert.equal(
+    machine.tick(5_000).some(
+      (event) => event.type === 'session-start' && event.beacon.minor === 4,
+    ),
+    true,
+  );
 });
 
 test('does not start a session for a brief signal flicker', () => {
@@ -115,6 +157,7 @@ test('ticks without further readings and ends exactly at the signal timeout', ()
   assert.equal(ended?.type, 'session-end');
   assert.equal(ended?.session.reason, 'signal-lost');
   assert.equal(ended?.session.endedAt, 22_000);
+  assert.equal(ended?.session.durationMs, 20_000);
 });
 
 test('discards a session one millisecond short of the minimum duration', () => {

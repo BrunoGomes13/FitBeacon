@@ -12,7 +12,7 @@ export function PeriodFilter({
   setTo: (value: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:flex sm:items-end">
+    <div className="grid min-w-0 grid-cols-1 gap-3 sm:flex sm:items-end">
       <FormField htmlFor="period-from" label="De">
         <input aria-label="Data inicial" className="field" id="period-from" max={to} onChange={(event) => setFrom(event.target.value)} type="date" value={from} />
       </FormField>

@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
+import { DeleteQueueProvider } from './DeleteQueueProvider';
 
 const navItems = [
   { to: '/', label: 'Visão geral', icon: LayoutDashboard, end: true },
@@ -49,7 +50,7 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
         ) : null}
       </nav>
       {mobile && moreOpen ? (
-        <nav aria-label="Mais opções" className="panel fixed inset-x-3 bottom-20 z-40 grid gap-1 p-2" id="mobile-more-menu">
+        <nav aria-label="Mais opções" className="panel fixed inset-x-3 bottom-24 z-40 grid max-h-[60dvh] gap-1 overflow-y-auto p-2" id="mobile-more-menu">
           {navItems.slice(4).map(({ to, label, icon: Icon, end }) => (
             <NavLink className="nav-link" end={end} key={to} onClick={() => setMoreOpen(false)} to={to}>
               <Icon aria-hidden="true" size={18} /><span>{label}</span>
@@ -125,7 +126,11 @@ export function AppLayout() {
           </div>
         </header>
         {logoutError ? <p className="mx-4 mt-4 rounded-md bg-danger/10 p-3 text-sm text-danger sm:mx-7" role="alert">{logoutError}</p> : null}
-        <main className="content"><Outlet /></main>
+        <main className="content">
+          <DeleteQueueProvider>
+            <Outlet />
+          </DeleteQueueProvider>
+        </main>
       </div>
       <Navigation mobile />
     </div>

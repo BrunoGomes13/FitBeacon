@@ -125,21 +125,21 @@ export function EquipmentEditorForm({
           <input className="field" id="equipment-uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" {...register('uuid')} />
         </FormField>
         <FormField error={errors.major?.message} htmlFor="equipment-major" label="Major">
-          <input className="field" id="equipment-major" type="number" {...register('major')} />
+          <input className="field" id="equipment-major" inputMode="numeric" type="number" {...register('major')} />
         </FormField>
         <FormField error={errors.minor?.message} htmlFor="equipment-minor" label="Minor">
-          <input className="field" id="equipment-minor" type="number" {...register('minor')} />
+          <input className="field" id="equipment-minor" inputMode="numeric" type="number" {...register('minor')} />
         </FormField>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <FormField error={errors.txPower?.message} htmlFor="equipment-tx" label="TX Power (dBm)">
-          <input className="field" id="equipment-tx" type="number" {...register('txPower')} />
+          <input className="field" id="equipment-tx" inputMode="decimal" type="number" {...register('txPower')} />
         </FormField>
         <FormField error={errors.rssiEnter?.message} htmlFor="equipment-enter" label="RSSI de entrada">
-          <input className="field" id="equipment-enter" type="number" {...register('rssiEnter')} />
+          <input className="field" id="equipment-enter" inputMode="decimal" type="number" {...register('rssiEnter')} />
         </FormField>
         <FormField error={errors.rssiExit?.message} htmlFor="equipment-exit" label="RSSI de saída">
-          <input className="field" id="equipment-exit" type="number" {...register('rssiExit')} />
+          <input className="field" id="equipment-exit" inputMode="decimal" type="number" {...register('rssiExit')} />
         </FormField>
       </div>
       <fieldset className="grid gap-3 rounded-md border border-border p-4">

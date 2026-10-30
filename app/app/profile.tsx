@@ -12,6 +12,7 @@ import {
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
+import { SessionOutboxPanel } from '../src/student/SessionOutboxPanel';
 import { logout, updateTrackingConsent } from '../src/api/services';
 import { useAppStore, type ThemePreference } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
@@ -196,6 +197,7 @@ export default function ProfileScreen() {
             variant={consent ? 'secondary' : 'primary'}
           />
         </Card>
+        <SessionOutboxPanel consent={consent} ownerId={user?.id} />
         <Card>
           <Text
             style={{

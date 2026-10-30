@@ -12,3 +12,4 @@ ios/
 !.env.example
 .DS_Store
 *.log
+*.tsbuildinfo, web/test-results/  web/playwright-report/.
