@@ -50,6 +50,23 @@ npm run lint
 npm test
 ```
 
+## Painel administrativo web
+
+Crie `web/.env` a partir de `web/.env.example` e configure `VITE_API_URL` para a URL
+da API. Inicie o painel na raiz do monorepo:
+
+```powershell
+npm run dev --workspace @fitbeacon/web
+```
+
+O Vite usa a porta `5173`; para permitir o acesso durante o desenvolvimento, acrescente
+`http://localhost:5173` a `CORS_ORIGINS` na configuração da API.
+
+O painel mantém os tokens somente em memória e não persiste dados pessoais de alunos.
+Permanece conhecida uma vulnerabilidade transitiva de Zod trazida pela cadeia de
+dependências da Expo CLI no app. Ela fica pendente de uma atualização compatível do
+Expo; não foi aplicado `npm audit fix --force`.
+
 ## Dependências principais do app (Expo SDK 58)
 
 | Dependência                      | Versão     |

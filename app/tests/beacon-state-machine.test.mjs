@@ -91,6 +91,8 @@ test('ends a session after fifteen seconds without signal', () => {
   enter(machine, 3, -65, 1_000);
   machine.update(reading(3, -65, 16_000));
 
+  assert.equal(machine.tick(30_999).some((event) => event.type === 'session-end'), false);
+
   const events = machine.tick(31_000);
   const ended = events.find((event) => event.type === 'session-end');
 
@@ -98,4 +100,31 @@ test('ends a session after fifteen seconds without signal', () => {
   assert.equal(ended?.session.reason, 'signal-lost');
   assert.equal(ended?.session.endedAt, 31_000);
   assert.equal(machine.getSnapshot().activeBeaconKey, null);
+});
+
+test('ticks without further readings and ends exactly at the signal timeout', () => {
+  const machine = createMachine();
+  enter(machine, 3, -65, 1_000);
+  machine.update(reading(3, -65, 7_000));
+
+  assert.deepEqual(machine.tick(21_999), []);
+
+  const events = machine.tick(22_000);
+  const ended = events.find((event) => event.type === 'session-end');
+
+  assert.equal(ended?.type, 'session-end');
+  assert.equal(ended?.session.reason, 'signal-lost');
+  assert.equal(ended?.session.endedAt, 22_000);
+});
+
+test('discards a session one millisecond short of the minimum duration', () => {
+  const machine = createMachine();
+  enter(machine, 3, -65, 1_000);
+  machine.update(reading(3, -65, 6_999));
+
+  const events = machine.tick(21_999);
+  const discarded = events.find((event) => event.type === 'session-discarded');
+
+  assert.equal(discarded?.type, 'session-discarded');
+  assert.equal(discarded?.session.durationMs, 19_999);
 });

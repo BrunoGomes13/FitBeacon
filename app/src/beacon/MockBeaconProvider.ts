@@ -10,6 +10,19 @@ export class MockBeaconProvider implements BeaconProvider {
   readonly simulate = (scenario: MockScenario): void => {
     this.scenario = scenario;
     this.step = 0;
+
+    if (scenario === 'exit') {
+      if (this.interval) {
+        clearInterval(this.interval);
+        this.interval = null;
+      }
+      return;
+    }
+
+    if (this.onReading && !this.interval) {
+      this.interval = setInterval(() => this.emitReading(), 500);
+      this.emitReading();
+    }
   };
   private interval: ReturnType<typeof setInterval> | null = null;
   private onReading: ((reading: BeaconReading) => void) | null = null;

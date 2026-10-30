@@ -415,12 +415,48 @@ describe('relatórios administrativos', () => {
     ).toContain(secondEquipmentId.toString());
   });
 
+  it('inclui alunos ativos e ocupação e filtra relatórios e mapa de calor', async () => {
+    const token = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const from = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const to = new Date(Date.now() + 60_000).toISOString();
+    const headers = { Authorization: 'Bearer ' + token };
+    const summary = await request(app)
+      .get('/api/v1/reports/summary')
+      .query({ from, to })
+      .set(headers);
+
+    expect(summary.status).toBe(200);
+    expect(summary.body.totals.activeStudents).toBe(1);
+    expect(summary.body.totals.occupancyRate).toBeGreaterThan(0);
+
+    const filteredUsage = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({ from, to, groupBy: 'equipment', equipmentId: equipmentId.toString() })
+      .set(headers);
+    expect(filteredUsage.status).toBe(200);
+    expect(filteredUsage.body.data).toHaveLength(1);
+    expect(filteredUsage.body.data[0]._id).toBe(equipmentId.toString());
+
+    const heatmap = await request(app)
+      .get('/api/v1/reports/heatmap')
+      .query({ from, to, areaId: areaId.toString() })
+      .set(headers);
+    expect(heatmap.status).toBe(200);
+    expect(heatmap.body.data).toHaveLength(1);
+    expect(heatmap.body.data[0]).toMatchObject({
+      areaId: areaId.toString(),
+      areaName: 'Musculação',
+      sessions: 2,
+      totalDurationSec: 1500,
+    });
+  });
+
   it('exporta dados por hora em CSV e bloqueia relatórios de alunos', async () => {
     const adminToken = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
     const csv = await request(app)
       .get('/api/v1/reports/export.csv')
       .query({ groupBy: 'hour' })
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', 'Bearer ' + adminToken);
     expect(csv.status).toBe(200);
     expect(csv.headers['content-type']).toContain('text/csv');
     expect(csv.text).toContain('"identificador"');
@@ -429,7 +465,7 @@ describe('relatórios administrativos', () => {
     const studentToken = await login('student@example.test', 'Senha-Forte-Teste-2026!');
     const forbidden = await request(app)
       .get('/api/v1/reports/summary')
-      .set('Authorization', `Bearer ${studentToken}`);
+      .set('Authorization', 'Bearer ' + studentToken);
     expect(forbidden.status).toBe(403);
     expect(forbidden.body.code).toBe('FORBIDDEN');
   });

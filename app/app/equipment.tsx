@@ -515,12 +515,20 @@ export default function EquipmentScreen() {
               visible={sessionMessage !== null}
             />
             {developerMode && beaconRuntime.isMock ? (
-              <Button
-                accessibilityLabel="Simular saída do aparelho"
-                label="Simular afastamento"
-                onPress={() => beaconRuntime.simulate('exit')}
-                variant="ghost"
-              />
+              <>
+                <Button
+                  accessibilityLabel="Simular saída do aparelho"
+                  label="Simular afastamento"
+                  onPress={() => beaconRuntime.simulate('exit')}
+                  variant="ghost"
+                />
+                <Button
+                  accessibilityLabel="Encerrar sessão agora"
+                  label="Encerrar sessão agora"
+                  onPress={beaconRuntime.forceEndSession}
+                  variant="secondary"
+                />
+              </>
             ) : null}
           </>
         ) : null}

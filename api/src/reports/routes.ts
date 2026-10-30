@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import { requireAdmin } from '../auth/middleware.js';
 import { getAuth } from '../http.js';
-import { Area, Equipment, UsageSession } from '../models/index.js';
+import { Equipment, UsageSession } from '../models/index.js';
 import { parseInput } from '../validation.js';
 
 type UsageAggregate = {
@@ -26,12 +26,24 @@ type SummaryAggregate = {
   totalDurationSec: number;
 };
 
+type ActiveStudentAggregate = { count: number };
+
+type HeatmapAggregate = {
+  areaId: string;
+  areaName: string;
+  hour: number;
+  sessions: number;
+  totalDurationSec: number;
+};
+
 const dateSchema = z.iso.datetime({ offset: true }).transform((value) => new Date(value));
 
 const reportQuerySchema = z.object({
   from: dateSchema.optional(),
   to: dateSchema.optional(),
   idleDays: z.coerce.number().int().min(1).max(365).default(7),
+  areaId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
+  equipmentId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
 });
 
 const groupSchema = z.enum(['equipment', 'area', 'hour']).default('equipment');
@@ -54,7 +66,32 @@ async function getRange(query: unknown) {
     ]);
   }
 
-  return { from, to, idleDays: parsed.idleDays };
+  return {
+    from,
+    to,
+    idleDays: parsed.idleDays,
+    areaId: parsed.areaId,
+    equipmentId: parsed.equipmentId,
+  };
+}
+
+async function getEquipmentIds(
+  gymId: Types.ObjectId,
+  filters: { areaId?: string; equipmentId?: string },
+): Promise<Types.ObjectId[]> {
+  const query: { gymId: Types.ObjectId; areaId?: Types.ObjectId; _id?: Types.ObjectId } = {
+    gymId,
+  };
+
+  if (filters.areaId) {
+    query.areaId = new Types.ObjectId(filters.areaId);
+  }
+
+  if (filters.equipmentId) {
+    query._id = new Types.ObjectId(filters.equipmentId);
+  }
+
+  return Equipment.find(query).distinct('_id');
 }
 
 async function aggregateUsage(
@@ -62,14 +99,15 @@ async function aggregateUsage(
   from: Date,
   to: Date,
   group: ReportGroup,
+  filters: { areaId?: string; equipmentId?: string } = {},
 ): Promise<UsageAggregate[] | HourAggregate[]> {
+  const equipmentIds = await getEquipmentIds(gymId, filters);
+
   if (group === 'hour') {
     return UsageSession.aggregate<HourAggregate>([
       {
         $match: {
-          equipmentId: {
-            $in: await Equipment.find({ gymId }).distinct('_id'),
-          },
+          equipmentId: { $in: equipmentIds },
           startedAt: { $gte: from, $lte: to },
         },
       },
@@ -88,7 +126,7 @@ async function aggregateUsage(
     return UsageSession.aggregate<UsageAggregate>([
       {
         $match: {
-          areaId: { $in: await Area.find({ gymId }).distinct('_id') },
+          equipmentId: { $in: equipmentIds },
           startedAt: { $gte: from, $lte: to },
         },
       },
@@ -123,7 +161,7 @@ async function aggregateUsage(
   return UsageSession.aggregate<UsageAggregate>([
     {
       $match: {
-        equipmentId: { $in: await Equipment.find({ gymId }).distinct('_id') },
+        equipmentId: { $in: equipmentIds },
         startedAt: { $gte: from, $lte: to },
       },
     },
@@ -192,10 +230,16 @@ export function createReportsRouter(config: AppConfig): Router {
   router.use(requireAdmin(config));
 
   router.get('/usage', async (request, response) => {
-    const { from, to } = await getRange(request.query);
+    const { from, to, areaId, equipmentId } = await getRange(request.query);
     const group = parseInput(groupSchema, request.query.groupBy);
     const format = parseInput(formatSchema, request.query.format);
-    const rows = await aggregateUsage(getAuth(request).gymId, from, to, group);
+    const rows = await aggregateUsage(
+      getAuth(request).gymId,
+      from,
+      to,
+      group,
+      { areaId, equipmentId },
+    );
 
     if (format === 'csv') {
       response
@@ -263,6 +307,17 @@ export function createReportsRouter(config: AppConfig): Router {
         },
       },
     ]);
+    const [activeStudents] = await UsageSession.aggregate<ActiveStudentAggregate>([
+      {
+        $match: {
+          equipmentId: { $in: equipmentIds },
+          startedAt: { $gte: from, $lte: to },
+        },
+      },
+      { $group: { _id: '$userId' } },
+      { $count: 'count' },
+      { $project: { _id: 0, count: 1 } },
+    ]);
     const activeEquipment = await Equipment.find({ gymId, isActive: true }).select(
       '_id name areaId',
     );
@@ -292,6 +347,15 @@ export function createReportsRouter(config: AppConfig): Router {
           totalSessions > 0
             ? Math.round((totalDurationSec / totalSessions) * 100) / 100
             : 0,
+        activeStudents: activeStudents?.count ?? 0,
+        occupancyRate:
+          activeEquipment.length > 0
+            ? Math.round(
+                (totalDurationSec /
+                  (activeEquipment.length * (to.getTime() - from.getTime()) / 1_000)) *
+                  10_000,
+              ) / 100
+            : 0,
       },
       rankings: {
         equipment: equipmentUsage,
@@ -305,10 +369,62 @@ export function createReportsRouter(config: AppConfig): Router {
     });
   });
 
+  router.get('/heatmap', async (request, response) => {
+    const { from, to, areaId, equipmentId } = await getRange(request.query);
+    const gymId = getAuth(request).gymId;
+    const equipmentIds = await getEquipmentIds(gymId, { areaId, equipmentId });
+    const rows = await UsageSession.aggregate<HeatmapAggregate>([
+      {
+        $match: {
+          equipmentId: { $in: equipmentIds },
+          startedAt: { $gte: from, $lte: to },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            areaId: '$areaId',
+            hour: { $hour: { date: '$startedAt', timezone: 'UTC' } },
+          },
+          sessions: { $sum: 1 },
+          totalDurationSec: { $sum: '$durationSec' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'areas',
+          localField: '_id.areaId',
+          foreignField: '_id',
+          as: 'area',
+        },
+      },
+      { $unwind: '$area' },
+      {
+        $project: {
+          _id: 0,
+          areaId: { $toString: '$_id.areaId' },
+          areaName: '$area.name',
+          hour: '$_id.hour',
+          sessions: 1,
+          totalDurationSec: 1,
+        },
+      },
+      { $sort: { areaName: 1, hour: 1 } },
+    ]);
+
+    response.json({ data: rows, period: { from, to } });
+  });
+
   router.get('/export.csv', async (request, response) => {
-    const { from, to } = await getRange(request.query);
+    const { from, to, areaId, equipmentId } = await getRange(request.query);
     const group = parseInput(groupSchema, request.query.groupBy);
-    const rows = await aggregateUsage(getAuth(request).gymId, from, to, group);
+    const rows = await aggregateUsage(
+      getAuth(request).gymId,
+      from,
+      to,
+      group,
+      { areaId, equipmentId },
+    );
 
     response.type('text/csv').attachment(`fitbeacon-uso-${group}.csv`).send(toCsv(rows));
   });
