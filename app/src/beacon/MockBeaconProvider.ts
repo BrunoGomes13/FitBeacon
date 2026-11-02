@@ -8,6 +8,12 @@ import type {
 export class MockBeaconProvider implements BeaconProvider {
   readonly kind = 'mock' as const;
   readonly simulate = (scenario: MockScenario): void => {
+    if (scenario === 'exit' && !this.interval) {
+      this.scenario = 'approach';
+      this.step = 0;
+      return;
+    }
+
     this.scenario = scenario;
     this.step = 0;
 
@@ -16,6 +22,8 @@ export class MockBeaconProvider implements BeaconProvider {
         clearInterval(this.interval);
         this.interval = null;
       }
+      this.scenario = 'approach';
+      this.step = 0;
       return;
     }
 
@@ -41,6 +49,8 @@ export class MockBeaconProvider implements BeaconProvider {
 
     this.onReading = onReading;
     this.onState = onState;
+    this.scenario = 'approach';
+    this.step = 0;
     this.onState({ status: 'scanning' });
     this.interval = setInterval(() => this.emitReading(), 500);
     this.emitReading();
@@ -54,6 +64,8 @@ export class MockBeaconProvider implements BeaconProvider {
 
     this.onReading = null;
     this.onState = null;
+    this.scenario = 'approach';
+    this.step = 0;
   }
 
   private emitReading(): void {

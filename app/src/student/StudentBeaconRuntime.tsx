@@ -25,6 +25,7 @@ import { BeaconStateMachine, DEFAULT_BEACON_THRESHOLDS } from '../beacon/BeaconS
 import { MockBeaconProvider } from '../beacon/MockBeaconProvider';
 import { RealBeaconProvider } from '../beacon/RealBeaconProvider';
 import { requestBeaconPermissions } from '../beacon/permissions';
+import { SessionConclusionController } from './SessionConclusionController';
 import { useAppStore } from '../state/store';
 import { Toast } from '../components/Toast';
 
@@ -37,6 +38,7 @@ export type StudentBeaconState = {
   message: string | null;
   snapshot: BeaconSnapshot;
   isMock: boolean;
+  canSimulateExit: boolean;
   simulate: (scenario: MockScenario) => void;
   forceEndSession: () => void;
   sessionFeedback: SessionFeedback | null;
@@ -105,6 +107,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
+  const [exitSimulated, setExitSimulated] = useState(false);
   const providerRef = useRef<BeaconProvider | null>(null);
   const machineRef = useRef(new BeaconStateMachine());
   const processEventsRef = useRef<(events: BeaconEvent[]) => void>(() => {});
@@ -119,6 +122,15 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   );
   const lastOpenedEquipmentKey = useRef<string | null>(null);
   const pathnameRef = useRef(pathname);
+
+  useEffect(() => {
+    if (!sessionFeedback || sessionFeedback.countdownUntil !== undefined) return;
+    const feedback = sessionFeedback;
+    const timeout = setTimeout(() => {
+      setSessionFeedback((current) => current === feedback ? null : current);
+    }, 3_500);
+    return () => clearTimeout(timeout);
+  }, [sessionFeedback]);
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -164,6 +176,10 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       : new RealBeaconProvider();
     machineRef.current = machine;
     providerRef.current = provider;
+    const conclusionController = new SessionConclusionController(() => {
+      router.dismissAll();
+      router.replace('/home');
+    });
     sessionByKey.current.clear();
     equipmentByKey.current.clear();
     equipmentPromiseByKey.current.clear();
@@ -204,10 +220,14 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         return;
       }
 
-      processEvents(machine.tick(Date.now()));
-      setSnapshot(machine.getSnapshot());
-      updateCountdown();
-      syncTicker();
+      try {
+        processEvents(machine.tick(Date.now()));
+        setSnapshot(machine.getSnapshot());
+        updateCountdown();
+        syncTicker();
+      } catch (error) {
+        setMessage(errorMessage(error));
+      }
     };
 
     const syncTicker = (): void => {
@@ -290,6 +310,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             beacon: event.beacon,
           };
           sessionByKey.current.set(event.beacon.key, meta);
+          conclusionController.begin(meta.clientSessionId);
+          setExitSimulated(false);
           const equipment = equipmentByKey.current.get(event.beacon.key);
 
           if (equipment) {
@@ -322,62 +344,63 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             continue;
           }
 
-          let droppedOldest = false;
-          void ensureEquipment(meta.beacon)
-            .then(async (equipment) => {
-              const activeWorkout = useAppStore.getState().activeWorkout;
-              const sets =
-                activeWorkout?.clientSessionId === meta.clientSessionId
-                  ? activeWorkout.sets
-                  : [];
+          setExitSimulated(true);
+          conclusionController.conclude(meta.clientSessionId, () => {
+            void (async () => {
+              let droppedOldest = false;
+              try {
+                const equipment = await ensureEquipment(meta.beacon);
+                const activeWorkout = useAppStore.getState().activeWorkout;
+                const sets =
+                  activeWorkout?.clientSessionId === meta.clientSessionId
+                    ? activeWorkout.sets
+                    : [];
 
-              if (!outbox) {
-                throw new Error('Não foi possível acessar a fila de sessões deste usuário.');
-              }
-              const droppedId = await outbox.enqueue({
-                clientSessionId: meta.clientSessionId,
-                equipmentId: equipment._id,
-                areaId: equipment.areaId._id,
-                startedAt: new Date(event.session.startedAt).toISOString(),
-                endedAt: new Date(event.session.endedAt).toISOString(),
-                sets,
-              });
-              droppedOldest = droppedId !== null;
-              if (useAppStore.getState().activeWorkout?.clientSessionId === meta.clientSessionId) {
-                useAppStore.getState().clearWorkout();
-              }
+                if (!outbox) {
+                  throw new Error('Não foi possível acessar a fila de sessões deste usuário.');
+                }
+                const droppedId = await outbox.enqueue({
+                  clientSessionId: meta.clientSessionId,
+                  equipmentId: equipment._id,
+                  areaId: equipment.areaId._id,
+                  startedAt: new Date(event.session.startedAt).toISOString(),
+                  endedAt: new Date(event.session.endedAt).toISOString(),
+                  sets,
+                });
+                droppedOldest = droppedId !== null;
+                if (useAppStore.getState().activeWorkout?.clientSessionId === meta.clientSessionId) {
+                  useAppStore.getState().clearWorkout();
+                }
 
-              await syncOutbox();
-              const outboxSnapshot = outbox.getSnapshot();
-              const failedSession = outboxSnapshot.failures.find(
-                (failure) => failure.clientSessionId === meta.clientSessionId,
-              );
-              if (droppedId) {
-                setSessionFeedback({
-                  tone: 'info',
-                  message: 'Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada para salvar a atual.',
-                });
-              } else if (failedSession) {
-                setSessionFeedback({
-                  tone: 'error',
-                  message: `A sessão foi salva, mas não pôde ser registrada: ${failedSession.reason}`,
-                });
-              } else if (outboxSnapshot.pendingCount > 0) {
-                setSessionFeedback({
-                  tone: outboxSnapshot.errorMessage ? 'error' : 'info',
-                  message: outboxSnapshot.errorMessage
-                    ? `Sessão salva no aparelho. ${outboxSnapshot.errorMessage}`
-                    : 'Sessão salva no aparelho e aguardando sincronização.',
-                });
-              } else if (developerMode) {
-                setSessionFeedback({
-                  tone: 'success',
-                  message: `Sessão registrada: ${equipment.name} · ${formatDuration(event.session.durationMs)}.`,
-                });
-              }
-            })
-            .catch((error: unknown) => {
-              if (!cancelled) {
+                await syncOutbox();
+                const outboxSnapshot = outbox.getSnapshot();
+                const failedSession = outboxSnapshot.failures.find(
+                  (failure) => failure.clientSessionId === meta.clientSessionId,
+                );
+                if (droppedId) {
+                  setSessionFeedback({
+                    tone: 'info',
+                    message: 'Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada para salvar a atual.',
+                  });
+                } else if (failedSession) {
+                  setSessionFeedback({
+                    tone: 'error',
+                    message: `Sessão salva, mas não registrada: ${failedSession.reason}`,
+                  });
+                } else if (outboxSnapshot.pendingCount > 0) {
+                  setSessionFeedback({
+                    tone: outboxSnapshot.errorMessage ? 'error' : 'info',
+                    message: outboxSnapshot.errorMessage
+                      ? `Sessão salva no aparelho. ${outboxSnapshot.errorMessage}`
+                      : 'Sessão salva no aparelho e aguardando sincronização.',
+                  });
+                } else {
+                  setSessionFeedback({
+                    tone: 'success',
+                    message: `Sessão registrada: ${equipment.name}, ${formatDuration(event.session.durationMs)}.`,
+                  });
+                }
+              } catch (error: unknown) {
                 const detail = errorMessage(error);
                 outbox?.reportError(
                   new Error('Não foi possível salvar ou sincronizar a sessão neste aparelho.'),
@@ -385,26 +408,26 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
                 setSessionFeedback({
                   tone: 'error',
                   message: droppedOldest
-                    ? `Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada. Não foi possível sincronizar agora: ${detail}`
+                    ? `Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada. Não foi possível sincronizar: ${detail}`
                     : `Não foi possível salvar a sessão: ${detail}`,
                 });
               }
-            });
+            })();
+          });
         } else if (event.type === 'session-discarded') {
           const session = sessionByKey.current.get(event.session.beacon.key);
           sessionByKey.current.delete(event.session.beacon.key);
 
-          if (
-            session &&
-            useAppStore.getState().activeWorkout?.clientSessionId ===
-              session.clientSessionId
-          ) {
-            useAppStore.getState().clearWorkout();
-          }
-          if (developerMode) {
-            setSessionFeedback({
-              tone: 'info',
-              message: `Sessão menor que ${DEFAULT_BEACON_THRESHOLDS.minimumSessionDurationMs / 1_000}s (${formatDuration(event.session.durationMs)}); descartada.`,
+          if (session) {
+            setExitSimulated(true);
+            conclusionController.conclude(session.clientSessionId, () => {
+              if (useAppStore.getState().activeWorkout?.clientSessionId === session.clientSessionId) {
+                useAppStore.getState().clearWorkout();
+              }
+              setSessionFeedback({
+                tone: 'info',
+                message: 'Sessão curta, não registrada.',
+              });
             });
           }
         } else if (event.type === 'zone-exit') {
@@ -453,10 +476,14 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             return;
           }
 
-          const events = machine.update(reading);
-          processEvents(events);
-          setSnapshot(machine.getSnapshot());
-          syncTicker();
+          try {
+            const events = machine.update(reading);
+            processEvents(events);
+            setSnapshot(machine.getSnapshot());
+            syncTicker();
+          } catch (error) {
+            setMessage(errorMessage(error));
+          }
         },
         (providerState) => {
           if (cancelled) {
@@ -555,36 +582,44 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         !hasHydrated || !user || !trackingConsent ? emptySnapshot : snapshot,
       isMock,
       simulate: (scenario) => {
-        providerRef.current?.simulate?.(scenario);
+        if (scenario === 'exit' && isMock) {
+          const current = machineRef.current.getSnapshot();
+          const activeBeacon = current.nearby.find(
+            (beacon) => beacon.key === current.activeBeaconKey,
+          );
+          if (!activeBeacon || exitSimulated) return;
 
-        if (scenario !== 'exit' || !isMock) {
-          return;
-        }
-
-        const current = machineRef.current.getSnapshot();
-        const activeBeacon = current.nearby.find(
-          (beacon) => beacon.key === current.activeBeaconKey,
-        );
-
-        if (!activeBeacon) {
+          setExitSimulated(true);
+          try {
+            providerRef.current?.simulate?.('exit');
+          } catch (error) {
+            setExitSimulated(false);
+            setMessage(errorMessage(error));
+            return;
+          }
+          const countdownUntil =
+            activeBeacon.observedAt + DEFAULT_BEACON_THRESHOLDS.noSignalTimeoutMs;
+          const remaining = Math.max(
+            0,
+            Math.ceil((countdownUntil - Date.now()) / 1_000),
+          );
           setSessionFeedback({
             tone: 'info',
-            message: 'Nenhuma sessão ativa para encerrar.',
+            countdownUntil,
+            message: `Sinal perdido, encerrando em ${remaining}s.`,
           });
           return;
         }
 
-        const countdownUntil =
-          activeBeacon.observedAt + DEFAULT_BEACON_THRESHOLDS.noSignalTimeoutMs;
-        const remaining = Math.max(
-          0,
-          Math.ceil((countdownUntil - Date.now()) / 1_000),
-        );
-        setSessionFeedback({
-          tone: 'info',
-          countdownUntil,
-          message: `Sinal perdido, encerrando em ${remaining}s.`,
-        });
+        if (scenario === 'approach') {
+          setExitSimulated(false);
+        }
+
+        try {
+          providerRef.current?.simulate?.(scenario);
+        } catch (error) {
+          setMessage(errorMessage(error));
+        }
       },
       forceEndSession: () => {
         if (!isMock) {
@@ -592,22 +627,26 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         }
 
         if (!machineRef.current.getSnapshot().activeBeaconKey) {
-          setSessionFeedback({
-            tone: 'info',
-            message: 'Nenhuma sessão ativa para encerrar.',
-          });
           return;
         }
 
-        providerRef.current?.simulate?.('exit');
-        processEventsRef.current(machineRef.current.reset(Date.now()));
-        setSnapshot(machineRef.current.getSnapshot());
-        syncTickerRef.current();
+        setExitSimulated(true);
+        try {
+          providerRef.current?.simulate?.('exit');
+          processEventsRef.current(machineRef.current.reset(Date.now()));
+          setSnapshot(machineRef.current.getSnapshot());
+          syncTickerRef.current();
+        } catch (error) {
+          setExitSimulated(false);
+          setMessage(errorMessage(error));
+        }
       },
+      canSimulateExit: snapshot.activeBeaconKey !== null && !exitSimulated,
       sessionFeedback,
     }),
     [
       hasHydrated,
+      exitSimulated,
       isMock,
       message,
       snapshot,
@@ -623,10 +662,10 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       <View
         pointerEvents="box-none"
         style={{
+          bottom: insets.bottom + 72,
           left: 16,
           position: 'absolute',
           right: 16,
-          top: insets.top + 8,
           zIndex: 1_000,
         }}
       >

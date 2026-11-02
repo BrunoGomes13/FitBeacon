@@ -518,7 +518,8 @@ export default function EquipmentScreen() {
               <>
                 <Button
                   accessibilityLabel="Simular saída do aparelho"
-                  label="Simular afastamento"
+                  disabled={!beaconRuntime.canSimulateExit}
+                  label={beaconRuntime.canSimulateExit ? 'Simular afastamento' : 'Sem sessão ativa'}
                   onPress={() => beaconRuntime.simulate('exit')}
                   variant="ghost"
                 />

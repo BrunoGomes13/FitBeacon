@@ -199,7 +199,8 @@ export default function HomeScreen() {
               />
               <Button
                 accessibilityLabel="Simular afastamento do aparelho"
-                label="Afastar"
+                disabled={!beacon.canSimulateExit}
+                label={beacon.canSimulateExit ? 'Afastar' : 'Sem sessão ativa'}
                 onPress={() => beacon.simulate('exit')}
                 variant="secondary"
               />

@@ -1,0 +1,21 @@
+FitBeacon - pacote de marca (gerado a partir de 'Logo FitBeacon_ Sinal e Forca.png')
+
+Cores extraidas da logo:
+  Fundo escuro .......... #070A0E
+  Azul (base do pin) .... #0084FD
+  Ciano (topo do pin) ... #00C6FF
+  Azul do 'Beacon' ...... #00B6F7
+  Branco ................ #FFFFFF
+
+Arquivos:
+  logo-fitbeacon-original.png ........... original (fundo escuro, 1254x1254)
+  logo-fitbeacon-transparente.png ....... logo completa sem fundo
+  simbolo-fitbeacon-transparente.png .... so o simbolo (pin + halteres), sem fundo
+  icon-1024.png ......................... icone do app (iOS e Android legado), com fundo
+  adaptive-icon-foreground-1024.png ..... Android: primeiro plano do icone adaptativo (fundo = #070A0E)
+  adaptive-icon-monochrome-1024.png ..... Android 13: icone tematico (silhueta branca)
+  splash-logo-1024.png .................. logo para a tela de abertura (fundo = #070A0E)
+  favicon-48/192/512.png ................ favicon e icones do painel web
+
+Observacao: as versoes transparentes usam texto branco ('Fit', slogan) e funcionam em fundo ESCURO.
+Para fundo claro, e preciso uma variante com texto escuro.
