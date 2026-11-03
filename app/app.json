@@ -4,8 +4,17 @@
     "slug": "fitbeacon",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/brand/icon-1024.png",
     "userInterfaceStyle": "automatic",
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#070A0E"
+    },
+    "splash": {
+      "image": "./assets/brand/splash-logo-1024.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070A0E"
+    },
     "scheme": "fitbeacon",
     "ios": {
       "supportsTablet": true
@@ -16,15 +25,14 @@
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#070A0E",
+        "foregroundImage": "./assets/brand/adaptive-icon-foreground-1024.png",
+        "monochromeImage": "./assets/brand/adaptive-icon-monochrome-1024.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/brand/favicon-48.png"
     },
     "plugins": [
       "expo-router",
@@ -36,7 +44,13 @@
         }
       ],
       "expo-video",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-navigation-bar",
+        {
+          "style": "dark"
+        }
+      ]
     ]
   }
 }

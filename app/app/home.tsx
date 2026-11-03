@@ -1,28 +1,149 @@
+import { useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { Text, View } from 'react-native';
+import {
+  Activity,
+  Bell,
+  Bike,
+  Dumbbell,
+  Radio,
+  UserRound,
+  Zap,
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Button,
   Card,
   EmptyState,
   ErrorState,
   Skeleton,
-  StatCard,
 } from '../src/components';
-import { ProximityRadar } from '../src/components/ProximityRadar';
+import { BrandLockup } from '../src/components/BrandLockup';
 import { ScreenContainer } from '../src/components/ScreenContainer';
-import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
-import { fetchTrainingSessions } from '../src/api/services';
-import type { TrainingSession } from '../src/api/schemas';
+import { fetchAllTrainingSessions, fetchAreas } from '../src/api/services';
+import { formatDurationMinutes, getTrainingProgress, type TrainingPeriod } from '../src/api/trainingProgress';
+import type { Area } from '../src/api/schemas';
 import { useStudentBeacon } from '../src/student/StudentBeaconRuntime';
+import {
+  getEquipmentRoute,
+  shouldShowNearbyEquipmentBanner,
+} from '../src/student/homePresentation';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
 
-function getEquipmentName(session: TrainingSession): string {
-  return typeof session.equipmentId === 'string'
-    ? 'Equipamento'
-    : session.equipmentId.name;
+function AreaIcon({ name, color }: { name: string; color: string }) {
+  const normalized = name.toLocaleLowerCase('pt-BR');
+  const Icon = normalized.includes('cardio')
+    ? Bike
+    : normalized.includes('funcional')
+      ? Zap
+      : normalized.includes('livre')
+        ? Activity
+        : Dumbbell;
+
+  return <Icon color={color} size={22} strokeWidth={1.8} />;
+}
+
+function ProgressMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={{
+        alignItems: 'center',
+        borderRightColor: theme.colors.border,
+        borderRightWidth: label === 'Séries' ? 0 : theme.sizes.border,
+        flex: 1,
+        gap: theme.spacing.xs,
+        justifyContent: 'center',
+        minHeight: 72,
+        paddingHorizontal: theme.spacing.xs,
+      }}
+    >
+      <Text
+        style={{
+          color: theme.colors.text,
+          fontFamily: theme.typography.fontFamily.bold,
+          fontSize: theme.typography.fontSize.lg,
+          lineHeight: theme.typography.lineHeight.lg,
+          textAlign: 'center',
+        }}
+      >
+        {value}
+      </Text>
+      <Text
+        style={{
+          color: theme.colors.secondary,
+          fontFamily: theme.typography.fontFamily.medium,
+          fontSize: theme.typography.fontSize.xs,
+          lineHeight: theme.typography.lineHeight.sm,
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          color: theme.colors.secondary,
+          fontFamily: theme.typography.fontFamily.regular,
+          fontSize: 10,
+          lineHeight: 14,
+          textAlign: 'center',
+        }}
+      >
+        {detail}
+      </Text>
+    </View>
+  );
+}
+
+function AreaTile({ area, onPress }: { area: Area; onPress: () => void }) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={`Ver equipamentos da área ${area.name}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => ({
+        alignItems: 'center',
+        backgroundColor: theme.colors.surface,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radius.lg,
+        borderWidth: theme.sizes.border,
+        flexDirection: 'row',
+        gap: theme.spacing.sm,
+        minHeight: 64,
+        opacity: pressed ? theme.interactionOpacity.pressed : 1,
+        paddingHorizontal: theme.spacing.md,
+        width: '48%',
+      })}
+    >
+      <AreaIcon color={theme.colors.primary} name={area.name} />
+      <Text
+        numberOfLines={2}
+        style={{
+          color: theme.colors.text,
+          flex: 1,
+          fontFamily: theme.typography.fontFamily.semiBold,
+          fontSize: theme.typography.fontSize.sm,
+          lineHeight: theme.typography.lineHeight.md,
+        }}
+      >
+        {area.name}
+      </Text>
+    </Pressable>
+  );
 }
 
 export default function HomeScreen() {
@@ -32,31 +153,129 @@ export default function HomeScreen() {
   const consent = useAppStore((state) => state.trackingConsent);
   const developerMode = useAppStore((state) => state.developerMode);
   const beacon = useStudentBeacon();
-  const historyQuery = useQuery({
-    queryKey: ['sessions', 1],
-    queryFn: () => fetchTrainingSessions(1),
-    enabled: Boolean(user && consent),
+  const detectedEquipment = useAppStore((state) => state.detectedEquipment);
+  const [period, setPeriod] = useState<TrainingPeriod>('week');
+  const areasQuery = useQuery({
+    queryKey: ['student', 'areas'],
+    queryFn: fetchAreas,
+    enabled: Boolean(user),
   });
-  const latestSession = historyQuery.data?.data[0];
+  const sessionsQuery = useQuery({
+    queryKey: ['sessions', 'all'],
+    queryFn: fetchAllTrainingSessions,
+    enabled: Boolean(user),
+  });
+  const progress = sessionsQuery.data
+    ? getTrainingProgress(sessionsQuery.data, period)
+    : null;
+  const firstName = user?.name.trim().split(/\s+/)[0] ?? 'atleta';
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
-        <ScreenHeader
-          eyebrow="FITBEACON · SEU ESPAÇO"
-          subtitle={`Olá, ${user?.name.split(' ')[0] ?? 'atleta'}. Vamos treinar?`}
-          title="Seu próximo movimento."
-        />
-        <ProximityRadar
-          message={
-            beacon.status === 'scanning'
-              ? 'Procurando aparelhos próximos'
-              : beacon.status === 'error'
-                ? 'Verifique o Bluetooth e as permissões'
-                : 'Detecção pausada'
-          }
-          scanning={beacon.status === 'scanning'}
-        />
+        <View
+          style={{
+            alignItems: 'center',
+            flexDirection: 'row',
+            gap: theme.spacing.sm,
+            justifyContent: 'space-between',
+          }}
+        >
+          <BrandLockup variant="home" />
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.xs }}>
+            <Pressable
+              accessibilityLabel="Notificações"
+              accessibilityRole="button"
+              onPress={() => router.push('/history')}
+              style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                minHeight: theme.sizes.controlHeight,
+                minWidth: theme.sizes.controlHeight,
+              }}
+            >
+              <Bell color={theme.colors.text} size={22} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Abrir perfil"
+              accessibilityRole="button"
+              onPress={() => router.push('/profile')}
+              style={{
+                alignItems: 'center',
+                backgroundColor: theme.colors.elevated,
+                borderColor: theme.colors.border,
+                borderRadius: theme.radius.pill,
+                borderWidth: theme.sizes.border,
+                height: 44,
+                justifyContent: 'center',
+                width: 44,
+              }}
+            >
+              <UserRound color={theme.colors.text} size={20} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={{ gap: theme.spacing.xs }}>
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontFamily: theme.typography.fontFamily.bold,
+              fontSize: theme.typography.fontSize.xl,
+              lineHeight: theme.typography.lineHeight.xl,
+            }}
+          >
+            Olá, {firstName}! 👋
+          </Text>
+          <Text
+            style={{
+              color: theme.colors.secondary,
+              fontFamily: theme.typography.fontFamily.medium,
+              fontSize: theme.typography.fontSize.md,
+              lineHeight: theme.typography.lineHeight.md,
+            }}
+          >
+            Bora treinar hoje?
+          </Text>
+        </View>
+
+        {shouldShowNearbyEquipmentBanner(detectedEquipment) ? (
+          <LinearGradient
+            colors={[theme.colors.primaryStart, theme.colors.primaryEnd]}
+            end={{ x: 1, y: 0 }}
+            start={{ x: 0, y: 0 }}
+            style={{
+              alignItems: 'center',
+              borderRadius: theme.radius.lg,
+              flexDirection: 'row',
+              gap: theme.spacing.md,
+              minHeight: 112,
+              padding: theme.spacing.md,
+            }}
+          >
+            <Radio color={theme.colors.onPrimary} size={40} strokeWidth={1.6} />
+            <View style={{ flex: 1, gap: theme.spacing.sm }}>
+              <Text
+                style={{
+                  color: theme.colors.onPrimary,
+                  flexShrink: 1,
+                  fontFamily: theme.typography.fontFamily.semiBold,
+                  fontSize: theme.typography.fontSize.md,
+                  lineHeight: theme.typography.lineHeight.md,
+                }}
+              >
+                Você está próximo de um equipamento!
+              </Text>
+              <Button
+                accessibilityLabel="Ver equipamento próximo"
+                label="Ver equipamento"
+                onPress={() => router.push(getEquipmentRoute(detectedEquipment))}
+                variant="secondary"
+              />
+            </View>
+          </LinearGradient>
+        ) : null}
+
         {beacon.status === 'error' ? (
           <Card>
             <ErrorState
@@ -68,116 +287,153 @@ export default function HomeScreen() {
             />
           </Card>
         ) : null}
+
         {!consent ? (
           <Card>
             <Text
               style={{
                 color: theme.colors.text,
                 fontFamily: theme.typography.fontFamily.semiBold,
+                fontSize: theme.typography.fontSize.md,
+                lineHeight: theme.typography.lineHeight.md,
+              }}
+            >
+              Ative o consentimento para detectar aparelhos e salvar seus treinos.
+            </Text>
+            <Button
+              accessibilityLabel="Configurar consentimento"
+              label="Configurar consentimento"
+              onPress={() => router.push('/profile')}
+              variant="secondary"
+            />
+          </Card>
+        ) : null}
+
+        <View style={{ gap: theme.spacing.md }}>
+          <View
+            style={{
+              alignItems: 'center',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontFamily: theme.typography.fontFamily.bold,
                 fontSize: theme.typography.fontSize.lg,
                 lineHeight: theme.typography.lineHeight.lg,
               }}
             >
-              Você está no controle
+              Seu progresso
             </Text>
-            <Text
+            <Pressable
+              accessibilityLabel={`Período: ${period === 'week' ? 'esta semana' : 'este mês'}. Toque para alterar`}
+              accessibilityRole="button"
+              onPress={() => setPeriod((current) => (current === 'week' ? 'month' : 'week'))}
               style={{
-                color: theme.colors.secondary,
-                fontFamily: theme.typography.fontFamily.regular,
-                fontSize: theme.typography.fontSize.sm,
-                lineHeight: theme.typography.lineHeight.md,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                minHeight: theme.sizes.controlHeight,
+                paddingHorizontal: theme.spacing.xs,
               }}
             >
-              Ative o consentimento de atividade para procurar equipamentos e guardar seus
-              treinos. Você pode revogar quando quiser.
-            </Text>
-            <Button
-              accessibilityLabel="Abrir configurações de privacidade"
-              label="Configurar consentimento"
-              onPress={() => router.push('/profile')}
-            />
+              <Text
+                style={{
+                  color: theme.colors.secondary,
+                  fontFamily: theme.typography.fontFamily.medium,
+                  fontSize: theme.typography.fontSize.xs,
+                }}
+              >
+                {period === 'week' ? 'Esta semana' : 'Este mês'} ›
+              </Text>
+            </Pressable>
+          </View>
+          <Card>
+            {sessionsQuery.isLoading ? (
+              <Skeleton lines={3} />
+            ) : sessionsQuery.isError ? (
+              <ErrorState
+                accessibilityLabel="Erro ao carregar progresso"
+                description={sessionsQuery.error.message}
+                onRetry={() => void sessionsQuery.refetch()}
+                retryLabel="Tentar novamente"
+                title="Não carregamos seu progresso"
+              />
+            ) : sessionsQuery.isSuccess && progress ? (
+              <View style={{ flexDirection: 'row' }}>
+                <ProgressMetric
+                  detail="concluídos"
+                  label="Treinos"
+                  value={String(progress.workouts)}
+                />
+                <ProgressMetric
+                  detail="de treino"
+                  label="Tempo total"
+                  value={formatDurationMinutes(progress.durationMinutes)}
+                />
+                <ProgressMetric
+                  detail="registradas"
+                  label="Séries"
+                  value={String(progress.sets)}
+                />
+              </View>
+            ) : (
+              <EmptyState
+                accessibilityLabel="Seu progresso ainda está vazio"
+                description="Seu resumo aparece aqui quando você registrar o primeiro treino."
+                title="Comece seu primeiro treino"
+              />
+            )}
           </Card>
-        ) : null}
-        <View style={{ flexDirection: 'row', gap: theme.spacing.md }}>
-          <StatCard
-            detail="No histórico"
-            label="Sessões"
-            value={
-              historyQuery.isSuccess
-                ? String(historyQuery.data.pagination.total)
-                : '—'
-            }
-          />
-          <StatCard
-            detail="Veja sua evolução"
-            label="Último treino"
-            value={
-              latestSession
-                ? `${Math.max(1, Math.round(latestSession.durationSec / 60))} min`
-                : '—'
-            }
-          />
         </View>
-        <Card>
+
+        <View style={{ gap: theme.spacing.md }}>
           <Text
             style={{
               color: theme.colors.text,
-              fontFamily: theme.typography.fontFamily.semiBold,
+              fontFamily: theme.typography.fontFamily.bold,
               fontSize: theme.typography.fontSize.lg,
               lineHeight: theme.typography.lineHeight.lg,
             }}
           >
-            Último treino
+            Áreas da academia
           </Text>
-          {historyQuery.isLoading ? <Skeleton lines={2} /> : null}
-          {historyQuery.isError ? (
-            <ErrorState
-              accessibilityLabel="Erro ao carregar treino recente"
-              description={historyQuery.error.message}
-              onRetry={() => void historyQuery.refetch()}
-              retryLabel="Tentar novamente"
-              title="Não carregamos seu treino"
-            />
+          {areasQuery.isLoading ? <Skeleton lines={2} /> : null}
+          {areasQuery.isError ? (
+            <Card>
+              <ErrorState
+                accessibilityLabel="Erro ao carregar áreas"
+                description={areasQuery.error.message}
+                onRetry={() => void areasQuery.refetch()}
+                retryLabel="Tentar novamente"
+                title="Não carregamos as áreas"
+              />
+            </Card>
           ) : null}
-          {historyQuery.isSuccess && latestSession ? (
-            <>
-              <Text
-                style={{
-                  color: theme.colors.primary,
-                  fontFamily: theme.typography.fontFamily.semiBold,
-                  fontSize: theme.typography.fontSize.md,
-                  lineHeight: theme.typography.lineHeight.md,
-                }}
-              >
-                {getEquipmentName(latestSession)}
-              </Text>
-              <Text
-                style={{
-                  color: theme.colors.secondary,
-                  fontFamily: theme.typography.fontFamily.regular,
-                  fontSize: theme.typography.fontSize.sm,
-                  lineHeight: theme.typography.lineHeight.md,
-                }}
-              >
-                {new Date(latestSession.startedAt).toLocaleDateString('pt-BR')} ·{' '}
-                {latestSession.sets.length} séries registradas
-              </Text>
-            </>
+          {areasQuery.isSuccess && areasQuery.data.length === 0 ? (
+            <Card>
+              <EmptyState
+                accessibilityLabel="Nenhuma área cadastrada"
+                description="As áreas da academia serão exibidas aqui quando estiverem disponíveis."
+                title="Nenhuma área disponível"
+              />
+            </Card>
           ) : null}
-          {historyQuery.isSuccess && !latestSession ? (
-            <EmptyState
-              accessibilityLabel="Ainda não há treinos"
-              description="Aproxime-se de um aparelho para começar seu primeiro treino."
-              title="Seu histórico começa aqui"
-            />
+          {areasQuery.isSuccess && areasQuery.data.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
+              {areasQuery.data.map((area) => (
+                <AreaTile
+                  area={area}
+                  key={area._id}
+                  onPress={() => router.push(`/equipment-list?areaId=${area._id}`)}
+                />
+              ))}
+            </View>
           ) : null}
-          <Button
-            accessibilityLabel="Abrir histórico de treinos"
-            label="Ver histórico"
-            onPress={() => router.push('/history')}
-            variant="secondary"
-          />
-        </Card>
+        </View>
+
         {developerMode && beacon.isMock ? (
           <Card>
             <Text
@@ -185,10 +441,9 @@ export default function HomeScreen() {
                 color: theme.colors.warning,
                 fontFamily: theme.typography.fontFamily.semiBold,
                 fontSize: theme.typography.fontSize.md,
-                lineHeight: theme.typography.lineHeight.md,
               }}
             >
-              Modo desenvolvedor{beacon.isMock ? ' · Mock ativo' : ''}
+              Modo desenvolvedor · Mock ativo
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
               <Button
@@ -213,12 +468,6 @@ export default function HomeScreen() {
             </View>
           </Card>
         ) : null}
-        <Button
-          accessibilityLabel="Abrir seu perfil e configurações"
-          label="Perfil e configurações"
-          onPress={() => router.push('/profile')}
-          variant="ghost"
-        />
       </ScreenContainer>
       <StudentTabBar />
     </View>

@@ -110,6 +110,11 @@ npm install @expo-google-fonts/inter --workspace @fitbeacon/app
 - `web/`: React + Vite + TypeScript; painel administrativo com React Router, TanStack
   Query, formulários Zod e gráficos carregados sob demanda.
 
+O cadastro de alunos exige CPF válido, normalizado e único; alunos preexistentes sem CPF
+continuam podendo entrar por e-mail. A API recebe `identifier` (e-mail ou CPF), nunca
+registra o documento nos logs e só expõe uma versão parcialmente mascarada no perfil do
+próprio aluno. O CPF completo não aparece em listas nem no painel administrativo.
+
 Os registros de uso enviados pela aplicação são identificados por `clientSessionId`.
 Relatórios e o mapa de calor apresentam agregados; nomes e identificadores de alunos não
 são mostrados no painel.

@@ -147,6 +147,7 @@ describe('autenticação', () => {
     const registration = await request(app).post('/api/v1/auth/register').send({
       name: 'Novo aluno',
       email: 'novo@example.test',
+      cpf: '529.982.247-25',
       password: 'Uma-Senha-Forte-2026!',
       gymId: gymId.toString(),
       consentTracking: true,
@@ -154,15 +155,19 @@ describe('autenticação', () => {
     });
 
     expect(registration.status).toBe(201);
+    expect(registration.body.user.cpfMasked).toBe('***.982.247-**');
     expect(registration.body.user.role).toBe('student');
     expect(registration.body.user).not.toHaveProperty('passwordHash');
+    expect(registration.body.user).not.toHaveProperty('cpf');
 
     const loginResponse = await request(app).post('/api/v1/auth/login').send({
-      email: 'novo@example.test',
+      identifier: 'novo@example.test',
       password: 'Uma-Senha-Forte-2026!',
     });
     expect(loginResponse.status).toBe(200);
     expect(loginResponse.body.user).not.toHaveProperty('passwordHash');
+    expect(loginResponse.body.user).not.toHaveProperty('cpf');
+    expect(loginResponse.body.user).not.toHaveProperty('cpfMasked');
 
     const accessToken = loginResponse.body.accessToken as string;
     const profile = await request(app)
@@ -171,6 +176,8 @@ describe('autenticação', () => {
     expect(profile.status).toBe(200);
     expect(profile.body.user.email).toBe('novo@example.test');
     expect(profile.body.user).not.toHaveProperty('passwordHash');
+    expect(profile.body.user).not.toHaveProperty('cpf');
+    expect(profile.body.user.cpfMasked).toBe('***.982.247-**');
 
     const refresh = await request(app)
       .post('/api/v1/auth/refresh')
@@ -195,8 +202,8 @@ describe('autenticação', () => {
       email: 'e-mail inválido',
       password: 'errada',
     });
-    expect(badLogin.status).toBe(400);
-    expect(badLogin.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(badLogin.status).toBe(401);
+    expect(badLogin.body).toMatchObject({ code: 'INVALID_CREDENTIALS' });
 
     const badCredentials = await request(app).post('/api/v1/auth/login').send({
       email: 'student@example.test',
@@ -204,6 +211,117 @@ describe('autenticação', () => {
     });
     expect(badCredentials.status).toBe(401);
     expect(badCredentials.body).toMatchObject({ code: 'INVALID_CREDENTIALS' });
+  });
+
+  it('valida e normaliza CPF, impede duplicidade e permite login por CPF', async () => {
+    const invalid = await request(app).post('/api/v1/auth/register').send({
+      name: 'CPF inválido',
+      email: 'cpf-invalido@example.test',
+      cpf: '111.111.111-11',
+      password: 'Uma-Senha-Forte-2026!',
+      gymId: gymId.toString(),
+      consentTracking: false,
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'cpf' })]),
+    );
+    expect(JSON.stringify(invalid.body)).not.toContain('11111111111');
+
+    const registration = await request(app).post('/api/v1/auth/register').send({
+      name: 'Aluna com CPF',
+      email: 'cpf@example.test',
+      cpf: '529.982.247-25',
+      password: 'Uma-Senha-Forte-2026!',
+      gymId: gymId.toString(),
+      consentTracking: true,
+    });
+    expect(registration.status).toBe(201);
+    expect(await User.findById(registration.body.user.id).select('+cpf').then((user) => user?.cpf))
+      .toBe('52998224725');
+
+    const cpfLogin = await request(app).post('/api/v1/auth/login').send({
+      identifier: '52998224725',
+      password: 'Uma-Senha-Forte-2026!',
+    });
+    expect(cpfLogin.status).toBe(200);
+    expect(cpfLogin.body.user).not.toHaveProperty('cpf');
+    expect(cpfLogin.body.user).not.toHaveProperty('cpfMasked');
+
+    const formattedCpfLogin = await request(app).post('/api/v1/auth/login').send({
+      identifier: '529.982.247-25',
+      password: 'Uma-Senha-Forte-2026!',
+    });
+    expect(formattedCpfLogin.status).toBe(200);
+    expect(formattedCpfLogin.body.user).not.toHaveProperty('cpfMasked');
+
+    const duplicate = await request(app).post('/api/v1/auth/register').send({
+      name: 'CPF duplicado',
+      email: 'cpf-duplicado@example.test',
+      cpf: '52998224725',
+      password: 'Uma-Senha-Forte-2026!',
+      gymId: gymId.toString(),
+      consentTracking: true,
+    });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.code).toBe('ACCOUNT_CONFLICT');
+  });
+
+  it('não revela se um CPF válido existe e mantém login de conta antiga por e-mail', async () => {
+    const wrongPassword = await request(app).post('/api/v1/auth/login').send({
+      identifier: 'student@example.test',
+      password: 'senha incorreta',
+    });
+    const missingCpf = await request(app).post('/api/v1/auth/login').send({
+      identifier: '52998224725',
+      password: 'Senha-Forte-Teste-2026!',
+    });
+    expect(missingCpf.status).toBe(wrongPassword.status);
+    expect(missingCpf.body).toEqual(wrongPassword.body);
+
+    const legacyEmailLogin = await request(app).post('/api/v1/auth/login').send({
+      email: 'student@example.test',
+      password: 'Senha-Forte-Teste-2026!',
+    });
+    expect(legacyEmailLogin.status).toBe(200);
+    expect(legacyEmailLogin.body.user).not.toHaveProperty('cpf');
+  });
+});
+
+describe('catálogo do aluno', () => {
+  it('lista áreas e equipamentos da academia sem retornar dados pessoais', async () => {
+    const adminLogin = await request(app).post('/api/v1/auth/login').send({
+      identifier: 'admin@example.test',
+      password: 'Senha-Forte-Teste-2026!',
+    });
+    expect(adminLogin.status).toBe(200);
+    expect(adminLogin.body.user).not.toHaveProperty('cpf');
+    expect(adminLogin.body.user).not.toHaveProperty('cpfMasked');
+
+    const token = await login('student@example.test', 'Senha-Forte-Teste-2026!');
+    const headers = { Authorization: `Bearer ${token}` };
+    const areas = await request(app).get('/api/v1/areas').set(headers);
+    expect(areas.status).toBe(200);
+    expect(areas.body.data[0].name).toBe('Musculação');
+    expect(JSON.stringify(areas.body)).not.toMatch(/cpf|email|passwordHash/i);
+
+    const equipment = await request(app).get('/api/v1/equipment').set(headers);
+    expect(equipment.status).toBe(200);
+    expect(equipment.body.data).toHaveLength(2);
+    expect(JSON.stringify(equipment.body)).not.toMatch(/cpf|email|passwordHash/i);
+
+    const adminList = await request(app)
+      .get('/api/v1/admin/equipment')
+      .set('Authorization', `Bearer ${adminLogin.body.accessToken as string}`);
+    expect(adminList.status).toBe(200);
+    expect(JSON.stringify(adminList.body)).not.toMatch(/cpf|passwordHash/i);
+
+    const filtered = await request(app)
+      .get('/api/v1/equipment')
+      .query({ areaId: areaId.toString() })
+      .set(headers);
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data).toHaveLength(2);
   });
 });
 

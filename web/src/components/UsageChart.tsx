@@ -1,9 +1,17 @@
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { HourRow } from '../lib/types';
 import { EmptyState } from './shared';
 
 export function UsageChart({ rows }: { rows: HourRow[] }) {
   if (rows.length === 0) return <EmptyState>Nenhuma sessão no período.</EmptyState>;
+  const peakIndex = rows.reduce(
+    (peak, row, index) => row.sessions > rows[peak].sessions ? index : peak,
+    0,
+  );
+  const leastUsedIndex = rows.reduce(
+    (least, row, index) => row.sessions < rows[least].sessions ? index : least,
+    0,
+  );
 
   return (
     <div className="h-72 w-full min-w-0">
@@ -26,7 +34,26 @@ export function UsageChart({ rows }: { rows: HourRow[] }) {
             }}
             labelFormatter={(hour) => `${String(hour).padStart(2, '0')}:00 UTC`}
           />
-          <Bar dataKey="sessions" name="Sessões" fill="var(--primary)" radius={[6, 6, 0, 0]} />
+          <defs>
+            <linearGradient id="usageGradient" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--primary)" />
+              <stop offset="100%" stopColor="var(--primary-end)" />
+            </linearGradient>
+          </defs>
+          <Bar dataKey="sessions" name="Sessões" radius={[6, 6, 0, 0]}>
+            {rows.map((row, index) => (
+              <Cell
+                fill={
+                  index === peakIndex
+                    ? 'var(--success)'
+                    : index === leastUsedIndex
+                      ? 'var(--warning)'
+                      : 'url(#usageGradient)'
+                }
+                key={`${row._id}-${index}`}
+              />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

@@ -5,6 +5,7 @@ export const userSchema = z.object({
   gymId: z.string(),
   name: z.string(),
   email: z.email(),
+  cpfMasked: z.string().optional(),
   role: z.enum(['student', 'admin']),
   consentTracking: z.boolean(),
 });
@@ -24,6 +25,8 @@ export const areaSchema = z.object({
   name: z.string(),
   description: z.string().optional().default(''),
 });
+
+export const areaListResponseSchema = z.object({ data: z.array(areaSchema) });
 
 export const exerciseSchema = z.object({
   _id: z.string(),
@@ -72,6 +75,9 @@ export const equipmentSchema = z.object({
 });
 
 export const equipmentResponseSchema = z.object({ data: equipmentSchema });
+export const equipmentListResponseSchema = z.object({
+  data: z.array(equipmentSchema),
+});
 
 export const sessionSetSchema = z.object({
   _id: z.string().optional(),
@@ -119,11 +125,12 @@ export const sessionListResponseSchema = z.object({
     page: z.number(),
     limit: z.number(),
     total: z.number(),
-    pages: z.number(),
+    totalPages: z.number(),
   }),
 });
 
 export type AppUser = z.infer<typeof userSchema>;
+export type Area = z.infer<typeof areaSchema>;
 export type Equipment = z.infer<typeof equipmentSchema>;
 export type Exercise = z.infer<typeof exerciseSchema>;
 export type TrainingSession = z.infer<typeof trainingSessionSchema>;

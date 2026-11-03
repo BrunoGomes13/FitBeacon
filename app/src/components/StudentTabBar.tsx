@@ -1,15 +1,19 @@
 import { Pressable, Text, View } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
+import { Bike, Clock3, House, UserRound } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 
 const tabs = [
-  { href: '/home', label: 'Início', icon: '⌂' },
-  { href: '/history', label: 'Histórico', icon: '◷' },
-  { href: '/profile', label: 'Perfil', icon: '○' },
+  { href: '/home', label: 'Início', Icon: House },
+  { href: '/equipment-list', label: 'Equipamentos', Icon: Bike },
+  { href: '/history', label: 'Treinos', Icon: Clock3 },
+  { href: '/profile', label: 'Perfil', Icon: UserRound },
 ] as const;
 
 export function StudentTabBar() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -21,12 +25,13 @@ export function StudentTabBar() {
         borderTopWidth: theme.sizes.border,
         flexDirection: 'row',
         justifyContent: 'space-around',
-        paddingBottom: theme.spacing.sm,
+        paddingBottom: Math.max(theme.spacing.sm, insets.bottom),
         paddingTop: theme.spacing.xs,
       }}
     >
       {tabs.map((tab) => {
         const selected = pathname === tab.href;
+        const Icon = tab.Icon;
 
         return (
           <Pressable
@@ -43,6 +48,11 @@ export function StudentTabBar() {
               paddingHorizontal: theme.spacing.md,
             }}
           >
+            <Icon
+              color={selected ? theme.colors.primary : theme.colors.secondary}
+              size={20}
+              strokeWidth={1.8}
+            />
             <Text
               style={{
                 color: selected ? theme.colors.primary : theme.colors.secondary,
@@ -52,7 +62,7 @@ export function StudentTabBar() {
                 textAlign: 'center',
               }}
             >
-              {tab.icon} {tab.label}
+              {tab.label}
             </Text>
           </Pressable>
         );

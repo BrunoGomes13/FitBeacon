@@ -22,6 +22,7 @@ const userSchema = new Schema(
     gymId: { type: Schema.Types.ObjectId, ref: 'Gym', required: true, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, trim: true, lowercase: true, unique: true },
+    cpf: { type: String, trim: true, select: false },
     passwordHash: { type: String, required: true, select: false },
     role: {
       type: String,
@@ -34,6 +35,7 @@ const userSchema = new Schema(
   },
   { timestamps: true },
 );
+userSchema.index({ cpf: 1 }, { unique: true, sparse: true });
 
 const areaSchema = new Schema(
   {

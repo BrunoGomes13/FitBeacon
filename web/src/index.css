@@ -11,6 +11,8 @@
   --color-foreground: var(--text);
   --color-muted: var(--text-muted);
   --color-primary: var(--primary);
+  --color-primary-start: var(--primary-start);
+  --color-primary-end: var(--primary-end);
   --color-primary-foreground: var(--primary-foreground);
   --color-success: var(--success);
   --color-warning: var(--warning);
@@ -19,6 +21,7 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
+  --radius-pill: var(--radius-pill);
 }
 
 * {
@@ -102,11 +105,66 @@ textarea {
   box-shadow: var(--shadow-panel);
 }
 
+.brand-panel {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background: var(--brand-surface);
+  padding: clamp(0.75rem, 3vw, 1.25rem);
+}
+
+.brand-panel img {
+  display: block;
+  width: min(100%, 22rem);
+  max-height: 10rem;
+  object-fit: contain;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-md);
+  background: var(--brand-surface);
+  padding: 0.5rem 0.75rem;
+  color: var(--brand-lockup-text);
+  text-decoration: none;
+}
+
+.brand-lockup img {
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  object-fit: contain;
+}
+
+.brand-wordmark {
+  white-space: nowrap;
+  font-size: 1.125rem;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+
+.brand-wordmark strong {
+  color: var(--brand-blue);
+  font-weight: inherit;
+}
+
+.brand-lockup-sidebar {
+  width: 100%;
+}
+
+.brand-lockup-mobile {
+  padding-inline: 0;
+}
+
 .field {
   width: 100%;
   min-height: 3rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0.875rem;
   background: var(--surface-raised);
   padding: 0.625rem 0.75rem;
   color: var(--text);
@@ -143,7 +201,8 @@ textarea {
 }
 
 .btn-primary {
-  background: var(--primary);
+  background: var(--primary-gradient);
+  border-radius: var(--radius-pill);
   color: var(--primary-foreground);
 }
 
@@ -152,7 +211,7 @@ textarea {
 }
 
 .btn-secondary {
-  border-color: var(--border);
+  border-color: var(--primary);
   background: var(--surface-raised);
   color: var(--text);
 }
@@ -185,8 +244,13 @@ textarea {
 }
 
 .nav-link[aria-current='page'] {
-  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
-  color: var(--primary);
+  background: var(--primary-gradient);
+  color: var(--primary-foreground);
+}
+
+.btn-logout {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
 }
 
 .data-table {

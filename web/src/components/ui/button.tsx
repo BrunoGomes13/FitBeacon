@@ -4,11 +4,11 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
 
 const buttonVariants = cva(
-  'inline-flex min-h-12 items-center justify-center gap-2 rounded-md px-4 py-2 font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)] disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex min-h-12 items-center justify-center gap-2 rounded-full px-4 py-2 font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)] disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:brightness-95',
+        default: 'bg-[image:var(--primary-gradient)] text-primary-foreground hover:brightness-95',
         secondary: 'border border-border bg-surface-raised text-foreground hover:bg-surface-hover',
         destructive: 'border border-danger/30 bg-danger/10 text-danger hover:bg-danger/15',
         ghost: 'text-muted hover:bg-surface-hover hover:text-foreground',

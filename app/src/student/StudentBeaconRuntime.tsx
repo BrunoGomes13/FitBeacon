@@ -40,6 +40,7 @@ export type StudentBeaconState = {
   isMock: boolean;
   canSimulateExit: boolean;
   simulate: (scenario: MockScenario) => void;
+  finishSession: () => void;
   forceEndSession: () => void;
   sessionFeedback: SessionFeedback | null;
 };
@@ -88,7 +89,12 @@ function formatDuration(durationMs: number): string {
 }
 
 function isScannerScreen(pathname: string): boolean {
-  return pathname === '/home' || pathname === '/equipment' || pathname === '/diagnostics';
+  return (
+    pathname === '/home' ||
+    pathname === '/equipment' ||
+    pathname === '/workout' ||
+    pathname === '/diagnostics'
+  );
 }
 
 export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
@@ -373,6 +379,9 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
                 }
 
                 await syncOutbox();
+                void queryClientFromProvider.invalidateQueries({
+                  queryKey: ['sessions'],
+                });
                 const outboxSnapshot = outbox.getSnapshot();
                 const failedSession = outboxSnapshot.failures.find(
                   (failure) => failure.clientSessionId === meta.clientSessionId,
@@ -434,6 +443,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           if (lastOpenedEquipmentKey.current === event.beacon.key) {
             lastOpenedEquipmentKey.current = null;
           }
+          useAppStore.getState().setDetectedEquipment(null);
         }
       }
     };
@@ -618,6 +628,29 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         try {
           providerRef.current?.simulate?.(scenario);
         } catch (error) {
+          setMessage(errorMessage(error));
+        }
+      },
+      finishSession: () => {
+        if (!machineRef.current.getSnapshot().activeBeaconKey) {
+          return;
+        }
+
+        setExitSimulated(true);
+        try {
+          if (isMock) {
+            providerRef.current?.simulate?.('exit');
+          }
+          const now = Date.now();
+          processEventsRef.current(
+            isMock
+              ? machineRef.current.reset(now)
+              : machineRef.current.finishSession(now),
+          );
+          setSnapshot(machineRef.current.getSnapshot());
+          syncTickerRef.current();
+        } catch (error) {
+          setExitSimulated(false);
           setMessage(errorMessage(error));
         }
       },

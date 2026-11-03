@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { DeleteQueueProvider } from './DeleteQueueProvider';
+import { BrandLockup } from './Brand';
 
 const navItems = [
   { to: '/', label: 'Visão geral', icon: LayoutDashboard, end: true },
@@ -95,11 +96,7 @@ export function AppLayout() {
     <div className="app-shell">
       <aside className="sidebar">
         <Link aria-label="FitBeacon, início" className="flex items-center gap-3 text-inherit no-underline" to="/">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground"><Activity aria-hidden="true" size={21} /></span>
-          <span className="brand-copy min-w-0">
-            <strong className="block truncate">FitBeacon</strong>
-            <span className="text-xs text-muted">Painel da academia</span>
-          </span>
+          <BrandLockup className="brand-lockup-sidebar" />
         </Link>
         <Navigation />
         <div className="mt-auto grid gap-3 border-t border-border pt-4">
@@ -108,7 +105,7 @@ export function AppLayout() {
             {theme === 'light' ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
             <span className="sidebar-label">Alternar tema</span>
           </button>
-          <button className="btn btn-ghost w-full" onClick={() => void logout()} type="button">
+          <button className="btn btn-logout w-full" onClick={() => void logout()} type="button">
             <LogOut aria-hidden="true" size={16} /><span className="sidebar-label">Sair</span>
           </button>
           {logoutError ? <p className="m-0 text-xs text-danger" role="alert">{logoutError}</p> : null}
@@ -116,7 +113,7 @@ export function AppLayout() {
       </aside>
       <div className="main-area">
         <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between border-b border-border bg-background/90 px-4 backdrop-blur sm:px-7">
-          <span className="font-semibold sm:hidden">FitBeacon</span>
+          <BrandLockup className="brand-lockup-mobile sm:hidden" />
           <span className="hidden text-sm text-muted sm:inline">{user?.name} · Administrador</span>
           <div className="ml-auto flex items-center gap-2 sm:ml-0">
             <button aria-label="Alternar tema claro/escuro" className="btn btn-ghost min-h-10 px-3" onClick={toggleTheme} type="button">

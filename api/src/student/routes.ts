@@ -172,6 +172,41 @@ async function saveSetLogs(sessionId: Types.ObjectId, sets: z.infer<typeof setSc
 export function createStudentRouter(config: AppConfig): Router {
   const router = Router();
 
+  router.get('/areas', requireAuth(config), async (request, response) => {
+    const areas = await Area.find({
+      gymId: getAuth(request).gymId,
+      isActive: true,
+    })
+      .select('name description')
+      .sort({ name: 1 })
+      .lean();
+
+    response.json({ data: areas });
+  });
+
+  router.get('/equipment', requireAuth(config), async (request, response) => {
+    const input = parseInput(
+      z.object({ areaId: z.string().regex(/^[a-f\d]{24}$/i).optional() }),
+      request.query,
+    );
+    const { gymId } = getAuth(request);
+    const equipment = await Equipment.find({
+      gymId,
+      isActive: true,
+      ...(input.areaId ? { areaId: toObjectId(input.areaId) } : {}),
+    })
+      .populate({ path: 'areaId', select: 'name description' })
+      .populate({
+        path: 'exerciseIds',
+        select: 'name muscleGroup steps commonMistakes media recommendedSets recommendedReps',
+        match: { gymId, isActive: true },
+      })
+      .sort({ name: 1 })
+      .lean();
+
+    response.json({ data: equipment });
+  });
+
   router.get('/equipment/beacon', requireAuth(config), async (request, response) => {
     const input = parseInput(beaconQuerySchema, request.query);
     const auth = getAuth(request);

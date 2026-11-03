@@ -16,6 +16,7 @@ type AppState = {
   accessToken: string | null;
   refreshToken: string | null;
   user: AppUser | null;
+  rememberSession: boolean;
   onboardingComplete: boolean;
   themePreference: ThemePreference;
   trackingConsent: boolean;
@@ -27,6 +28,7 @@ type AppState = {
   setSession: (
     tokens: { accessToken: string; refreshToken: string },
     user: AppUser,
+    rememberSession?: boolean,
   ) => void;
   setTokens: (tokens: { accessToken: string; refreshToken: string }) => void;
   clearSession: () => void;
@@ -48,6 +50,7 @@ export const useAppStore = create<AppState>()(
       accessToken: null,
       refreshToken: null,
       user: null,
+      rememberSession: true,
       onboardingComplete: false,
       themePreference: 'system',
       trackingConsent: false,
@@ -56,10 +59,11 @@ export const useAppStore = create<AppState>()(
       activeWorkout: null,
       detectedEquipment: null,
       hasHydrated: false,
-      setSession: (tokens, user) =>
+      setSession: (tokens, user, rememberSession = true) =>
         set({
           ...tokens,
           user,
+          rememberSession,
           trackingConsent: user.consentTracking,
         }),
       setTokens: (tokens) => set(tokens),
@@ -68,6 +72,7 @@ export const useAppStore = create<AppState>()(
           accessToken: null,
           refreshToken: null,
           user: null,
+          rememberSession: true,
           trackingConsent: false,
           activeWorkout: null,
           detectedEquipment: null,
@@ -101,9 +106,14 @@ export const useAppStore = create<AppState>()(
       name: 'fitbeacon-private-state',
       storage: createJSONStorage(() => secureStateStorage),
       partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        user: state.user,
+        ...(state.rememberSession
+          ? {
+              accessToken: state.accessToken,
+              refreshToken: state.refreshToken,
+              user: state.user,
+            }
+          : {}),
+        rememberSession: state.rememberSession,
         onboardingComplete: state.onboardingComplete,
         themePreference: state.themePreference,
         trackingConsent: state.trackingConsent,

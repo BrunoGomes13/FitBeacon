@@ -6,6 +6,7 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
 import { useTheme } from '../theme/ThemeProvider';
 
 type AppTextInputProps = TextInputProps & {
@@ -78,16 +79,11 @@ export function AppTextInput({
               minWidth: theme.sizes.controlHeight,
             }}
           >
-            <Text
-              style={{
-                color: theme.colors.info,
-                fontFamily: theme.typography.fontFamily.medium,
-                fontSize: theme.typography.fontSize.xs,
-                lineHeight: theme.typography.lineHeight.sm,
-              }}
-            >
-              {isSecureVisible ? 'Ocultar' : 'Mostrar'}
-            </Text>
+            {isSecureVisible ? (
+              <EyeOff color={theme.colors.info} size={20} />
+            ) : (
+              <Eye color={theme.colors.info} size={20} />
+            )}
           </Pressable>
         ) : null}
       </View>

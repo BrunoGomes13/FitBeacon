@@ -62,11 +62,12 @@ exemplo são exclusivamente para desenvolvimento local.
 
 No Postman ou Insomnia, use a base `http://localhost:3000/api/v1`.
 
-1. Faça `POST /auth/login` com `Content-Type: application/json`:
+1. Faça `POST /auth/login` com `Content-Type: application/json`; `identifier` aceita
+   e-mail ou CPF:
 
 ```json
 {
-  "email": "admin@fitbeacon.local",
+  "identifier": "admin@fitbeacon.local",
   "password": "FitBeacon-Admin-2026!"
 }
 ```
@@ -96,6 +97,13 @@ Invoke-RestMethod `
 por esse endpoint. O cadastro exige `gymId` e `consentTracking`. O consentimento pode ser
 alterado pelo próprio usuário com `PATCH /auth/me/consent` e
 `{"consentTracking":true}`. A busca de beacon e o registro de sessões exigem consentimento.
+O cadastro também exige CPF válido, que é normalizado para onze dígitos e protegido por
+índice único esparso. Alunos antigos sem CPF continuam autenticando por e-mail. O login
+aceita `identifier` com e-mail ou CPF (o campo `email` permanece compatível com clientes
+anteriores) e responde com a mesma mensagem genérica para credenciais inválidas. O CPF completo nunca é incluído em respostas, listas ou relatórios;
+somente o perfil individual do aluno pode retornar `cpfMasked` (por exemplo,
+`***.456.789-**`). O endpoint de login e as respostas administrativas não retornam CPF.
+Os endpoints atuais não oferecem listagem de alunos. O CPF não é registrado nos logs.
 
 ## Rotas
 
@@ -117,9 +125,14 @@ Todas as entradas são validadas com Zod. Respostas de erro usam
 
 | Método | Rota                                             | Acesso                     |
 | ------ | ------------------------------------------------ | -------------------------- |
+| `GET`  | `/areas`                                         | Aluno autenticado          |
+| `GET`  | `/equipment?areaId=...`                          | Aluno autenticado          |
 | `GET`  | `/equipment/beacon?uuid=...&major=...&minor=...` | Aluno com consentimento    |
 | `POST` | `/sessions/batch`                                | Aluno com consentimento    |
 | `GET`  | `/sessions?page=1&limit=20`                      | Próprio histórico paginado |
+
+`GET /areas` retorna as áreas ativas da academia autenticada. `GET /equipment` lista os
+equipamentos ativos; aceite `areaId` para filtrar por área.
 
 O lote de sessões aceita de 1 a 100 registros. `clientSessionId` é um UUID único; o mesmo
 conteúdo repetido é idempotente e a reutilização do identificador com dados diferentes

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Activity, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { FormField } from '../components/shared';
 import { Button } from '../components/ui/button';
 import { ApiError } from '../lib/api';
+import { FullBrand } from '../components/Brand';
 
 const loginSchema = z.object({
   email: z.email('Informe um e-mail válido.'),
@@ -42,13 +43,8 @@ export function LoginPage() {
   return (
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <section className="panel w-full max-w-md p-7 sm:p-9">
-        <div className="mb-8 flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-md bg-primary text-primary-foreground"><Activity aria-hidden="true" size={22} /></span>
-          <div>
-            <p className="m-0 text-lg font-semibold">FitBeacon</p>
-            <p className="m-0 text-xs text-muted">Painel administrativo</p>
-          </div>
-        </div>
+        <FullBrand className="mb-8" />
+        <p className="mb-5 mt-0 text-center text-sm text-muted">Painel administrativo</p>
         <h1 className="m-0 text-2xl font-semibold">Acesse sua conta</h1>
         <p className="mb-6 mt-2 text-sm text-muted">Entre com as credenciais de administrador da academia.</p>
         {message ? <p className="mb-4 rounded-md border border-danger/30 bg-danger/10 p-3 text-sm text-danger" role="alert">{message}</p> : null}

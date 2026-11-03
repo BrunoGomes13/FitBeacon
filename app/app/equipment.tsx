@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ArrowLeft, ChevronRight, Radio, Settings2 } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { Controller, useForm } from 'react-hook-form';
@@ -19,7 +20,6 @@ import {
 import { AppTextInput } from '../src/components/AppTextInput';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
-import { StudentTabBar } from '../src/components/StudentTabBar';
 import { fetchEquipmentByBeacon } from '../src/api/services';
 import type { Exercise } from '../src/api/schemas';
 import { useAppStore } from '../src/state/store';
@@ -68,7 +68,7 @@ function MediaPreview({
         style={{
           backgroundColor: theme.colors.elevated,
           borderRadius: theme.radius.lg,
-          height: theme.spacing['6xl'] + theme.spacing['5xl'],
+          height: 220,
           width: '100%',
         }}
       />
@@ -83,7 +83,7 @@ function MediaPreview({
         style={{
           backgroundColor: theme.colors.elevated,
           borderRadius: theme.radius.lg,
-          height: theme.spacing['6xl'] + theme.spacing['5xl'],
+          height: 220,
           width: '100%',
         }}
       />
@@ -98,7 +98,7 @@ function MediaPreview({
         borderColor: theme.colors.border,
         borderRadius: theme.radius.lg,
         borderWidth: theme.sizes.border,
-        height: theme.spacing['6xl'] + theme.spacing['5xl'],
+        height: 220,
         justifyContent: 'center',
       }}
     >
@@ -211,12 +211,30 @@ export default function EquipmentScreen() {
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
-        <Button
-          accessibilityLabel="Voltar para a tela inicial"
-          label="Voltar"
+        <Pressable
+          accessibilityLabel="Voltar para a tela anterior"
+        accessibilityRole="button"
           onPress={() => router.back()}
-          variant="ghost"
-        />
+        style={{
+          alignItems: 'center',
+          alignSelf: 'flex-start',
+          flexDirection: 'row',
+          gap: theme.spacing.sm,
+          minHeight: theme.sizes.controlHeight,
+          minWidth: theme.sizes.controlHeight,
+        }}
+        >
+        <ArrowLeft color={theme.colors.text} size={22} />
+        <Text
+          style={{
+            color: theme.colors.text,
+            fontFamily: theme.typography.fontFamily.medium,
+            fontSize: theme.typography.fontSize.sm,
+          }}
+        >
+          Equipamento próximo
+        </Text>
+        </Pressable>
         {equipmentQuery.isLoading ? <Skeleton lines={3} /> : null}
         {equipmentQuery.isError ? (
           <Card>
@@ -231,13 +249,32 @@ export default function EquipmentScreen() {
         ) : null}
         {equipment ? (
           <>
-            <MediaPreview
-              imageUrl={exercise?.media.imageUrl ?? equipment.media.imageUrl}
-              videoUrl={exercise?.media.videoUrl}
-            />
+            <View>
+              <MediaPreview
+                imageUrl={exercise?.media.imageUrl ?? equipment.media.imageUrl}
+                videoUrl={exercise?.media.videoUrl}
+              />
+              <View
+                accessibilityLabel="Sinal do beacon do equipamento"
+                style={{
+                  alignItems: 'center',
+                  alignSelf: 'center',
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.primary,
+                  borderRadius: theme.radius.pill,
+                  borderWidth: 2,
+                  height: 76,
+                  justifyContent: 'center',
+                  position: 'absolute',
+                  top: 72,
+                  width: 76,
+                }}
+              >
+                <Radio color={theme.colors.primary} size={38} strokeWidth={1.6} />
+              </View>
+            </View>
             <ScreenHeader
-              eyebrow={equipment.areaId.name}
-              subtitle={equipment.areaId.description}
+              subtitle={`Área: ${equipment.areaId.name}  |  Equipamento: ${String(equipment.beacon.minor).padStart(2, '0')}`}
               title={equipment.name}
             />
             {equipment.exerciseIds.length === 0 ? (
@@ -264,30 +301,43 @@ export default function EquipmentScreen() {
                     lineHeight: theme.typography.lineHeight.lg,
                   }}
                 >
-                  Ajuste antes de começar
+                  Regulagem do equipamento
                 </Text>
                 {equipment.adjustments.length ? (
                   equipment.adjustments.map((adjustment, index) => (
                     <View
                       key={`${adjustment.name}-${index}`}
                       style={{
-                        borderColor: theme.colors.border,
-                        borderRadius: theme.radius.md,
-                        borderWidth: theme.sizes.border,
+                        borderBottomColor: theme.colors.border,
+                        borderBottomWidth:
+                          index === equipment.adjustments.length - 1
+                            ? 0
+                            : theme.sizes.border,
                         gap: theme.spacing.xs,
-                        padding: theme.spacing.md,
+                        paddingVertical: theme.spacing.sm,
                       }}
                     >
-                      <Text
+                      <View
                         style={{
-                          color: theme.colors.primary,
-                          fontFamily: theme.typography.fontFamily.semiBold,
-                          fontSize: theme.typography.fontSize.sm,
-                          lineHeight: theme.typography.lineHeight.md,
+                          alignItems: 'center',
+                          flexDirection: 'row',
+                          gap: theme.spacing.sm,
                         }}
                       >
-                        {index + 1}. {adjustment.name}
-                      </Text>
+                        <Settings2 color={theme.colors.primary} size={20} />
+                        <Text
+                          style={{
+                            color: theme.colors.text,
+                            flex: 1,
+                            fontFamily: theme.typography.fontFamily.semiBold,
+                            fontSize: theme.typography.fontSize.sm,
+                            lineHeight: theme.typography.lineHeight.md,
+                          }}
+                        >
+                          {adjustment.name}
+                        </Text>
+                        <ChevronRight color={theme.colors.secondary} size={18} />
+                      </View>
                       <Text
                         style={{
                           color: theme.colors.secondary,
@@ -508,6 +558,46 @@ export default function EquipmentScreen() {
                 </Text>
               </Card>
             ) : null}
+            {exercise ? (
+              <Card>
+                <Text
+                  style={{
+                    color: theme.colors.text,
+                    fontFamily: theme.typography.fontFamily.semiBold,
+                    fontSize: theme.typography.fontSize.md,
+                    lineHeight: theme.typography.lineHeight.md,
+                  }}
+                >
+                  Séries e repetições
+                </Text>
+                <View
+                  style={{
+                    alignItems: 'center',
+                    flexDirection: 'row',
+                    gap: theme.spacing.md,
+                    minHeight: theme.sizes.controlHeight,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.primary,
+                      flex: 1,
+                      fontFamily: theme.typography.fontFamily.medium,
+                      fontSize: theme.typography.fontSize.sm,
+                      lineHeight: theme.typography.lineHeight.md,
+                    }}
+                  >
+                    {exercise.recommendedSets} séries de {exercise.recommendedReps} repetições
+                  </Text>
+                  <ChevronRight color={theme.colors.primary} size={20} />
+                </View>
+              </Card>
+            ) : null}
+            <Button
+              accessibilityLabel="Iniciar treino"
+              label="Iniciar treino"
+              onPress={() => router.push('/workout')}
+            />
             <Toast
               accessibilityLabel="Atualização da série ou treino"
               message={sessionMessage ?? ''}
@@ -541,7 +631,6 @@ export default function EquipmentScreen() {
           />
         ) : null}
       </ScreenContainer>
-      <StudentTabBar />
     </View>
   );
 }

@@ -144,6 +144,44 @@ test('ends a session after fifteen seconds without signal', () => {
   assert.equal(machine.getSnapshot().activeBeaconKey, null);
 });
 
+test('manual finish waits for the real beacon exit before allowing a new session', () => {
+  const machine = new BeaconStateMachine();
+  const reading = (rssi, observedAt) => ({
+    key: 'gym:1:1',
+    uuid: '00000000-0000-4000-8000-000000000001',
+    major: 1,
+    minor: 1,
+    txPower: -59,
+    rssi,
+    observedAt,
+  });
+
+  machine.update(reading(-60, 1_000));
+  machine.update(reading(-60, 1_500));
+  const entryEvents = machine.update(reading(-60, 2_000));
+  assert.ok(entryEvents.some((event) => event.type === 'session-start'));
+
+  for (let at = 2_500; at <= 26_500; at += 500) {
+    machine.update(reading(-60, at));
+  }
+  const finishEvents = machine.finishSession(27_000);
+  assert.ok(finishEvents.some((event) => event.type === 'session-end'));
+  const stillNearby = machine.update(reading(-60, 27_500));
+  assert.equal(stillNearby.some((event) => event.type === 'session-start'), false);
+
+  const exitEvents = [];
+  for (let at = 28_000; at <= 32_000; at += 500) {
+    exitEvents.push(...machine.update(reading(-94, at)));
+  }
+  assert.ok(exitEvents.some((event) => event.type === 'zone-exit'));
+
+  const reentryEvents = [];
+  for (let at = 32_500; at <= 37_000; at += 500) {
+    reentryEvents.push(...machine.update(reading(-60, at)));
+  }
+  assert.ok(reentryEvents.some((event) => event.type === 'session-start'));
+});
+
 test('ticks without further readings and ends exactly at the signal timeout', () => {
   const machine = createMachine();
   enter(machine, 3, -65, 1_000);

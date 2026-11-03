@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -6,8 +7,16 @@ import {
   useFonts,
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { Text, useColorScheme, View } from 'react-native';
+import { NavigationBar } from 'expo-navigation-bar';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  Image,
+  StatusBar,
+  Text,
+  useColorScheme,
+  View,
+} from 'react-native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '../src/api/queryClient';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -16,9 +25,11 @@ import { themes } from '../src/theme';
 import { StudentBeaconRuntime } from '../src/student/StudentBeaconRuntime';
 import { NativeErrorBoundary } from '../src/components/NativeErrorBoundary';
 import { useAppStore } from '../src/state/store';
+import brandLogo from '../assets/brand/logo-fitbeacon-transparente.png';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [reduceMotion, setReduceMotion] = useState(false);
   const themePreference = useAppStore((state) => state.themePreference);
   const mode =
     themePreference === 'system'
@@ -34,6 +45,21 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotion,
+    );
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
   if (fontError) {
     throw fontError;
   }
@@ -43,23 +69,22 @@ export default function RootLayout() {
       <View
         style={{
           alignItems: 'center',
-          backgroundColor: theme.colors.background,
+          backgroundColor: '#02070D',
           flex: 1,
+          gap: theme.spacing.lg,
           justifyContent: 'center',
+          padding: theme.spacing['2xl'],
         }}
       >
-        <Text
+        <Image
           accessibilityLabel="Carregando fonte"
-          style={{
-            color: theme.colors.primary,
-            fontFamily: theme.typography.fontFamily.bold,
-            fontSize: theme.typography.fontSize.lg,
-            lineHeight: theme.typography.lineHeight.lg,
-          }}
-        >
-          …
-        </Text>
-        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+          resizeMode="contain"
+          source={brandLogo}
+          style={{ height: 190, maxWidth: 360, width: '100%' }}
+        />
+        <ActivityIndicator color={theme.colors.primary} size="large" />
+        <Text style={{ color: theme.colors.text }}>Carregando...</Text>
+        <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
       </View>
     );
   }
@@ -70,11 +95,14 @@ export default function RootLayout() {
         <ThemeProvider theme={theme}>
           <NativeErrorBoundary theme={theme}>
             <StudentBeaconRuntime>
-              <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+              <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
+              <NavigationBar style={mode === 'dark' ? 'dark' : 'light'} />
               <Stack
                 screenOptions={{
                   contentStyle: { backgroundColor: theme.colors.background },
                   headerShown: false,
+                  navigationBarColor: theme.colors.background,
+                  animation: reduceMotion ? 'none' : 'fade',
                 }}
               />
             </StudentBeaconRuntime>

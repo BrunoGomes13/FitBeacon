@@ -200,6 +200,18 @@ export class BeaconStateMachine {
     return this.finish(events);
   }
 
+  finishSession(now: number): BeaconEvent[] {
+    const events: BeaconEvent[] = [];
+
+    if (this.activeSession) {
+      this.endActiveSession(now, 'stopped', events);
+    }
+
+    this.candidateBeaconKey = null;
+    this.candidateSince = null;
+    return this.finish(events);
+  }
+
   private thresholdsFor(beacon: BeaconIdentity): BeaconThresholds {
     return resolveBeaconThresholds(beacon, this.options);
   }

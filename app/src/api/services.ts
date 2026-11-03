@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { apiRequest } from './client';
 import {
   authResponseSchema,
+  areaListResponseSchema,
   equipmentResponseSchema,
+  equipmentListResponseSchema,
   meResponseSchema,
   sessionListResponseSchema,
   type AppUser,
@@ -18,7 +20,7 @@ const sessionBatchResponseSchema = z.object({
 });
 
 export async function login(input: {
-  email: string;
+  identifier: string;
   password: string;
 }): Promise<z.infer<typeof authResponseSchema>> {
   return apiRequest(
@@ -32,16 +34,36 @@ export async function login(input: {
 export async function register(input: {
   name: string;
   email: string;
+  cpf: string;
   password: string;
   gymId: string;
   consentTracking: boolean;
 }): Promise<z.infer<typeof authResponseSchema>> {
+  const cpf = input.cpf.replace(/\D/g, '');
   return apiRequest(
     '/auth/register',
     authResponseSchema,
-    { method: 'POST', body: JSON.stringify(input) },
+    { method: 'POST', body: JSON.stringify({ ...input, cpf }) },
     false,
   );
+}
+
+export async function fetchAreas(): Promise<
+  z.infer<typeof areaListResponseSchema>['data']
+> {
+  const response = await apiRequest('/areas', areaListResponseSchema);
+  return response.data;
+}
+
+export async function fetchEquipments(areaId?: string): Promise<
+  z.infer<typeof equipmentListResponseSchema>['data']
+> {
+  const query = areaId ? `?areaId=${encodeURIComponent(areaId)}` : '';
+  const response = await apiRequest(
+    `/equipment${query}`,
+    equipmentListResponseSchema,
+  );
+  return response.data;
 }
 
 export async function fetchCurrentUser(): Promise<AppUser> {
@@ -85,10 +107,24 @@ export async function fetchEquipmentByBeacon(input: {
   return response.data;
 }
 
-export async function fetchTrainingSessions(page = 1): Promise<
+export async function fetchTrainingSessions(page = 1, limit = 50): Promise<
   z.infer<typeof sessionListResponseSchema>
 > {
-  return apiRequest(`/sessions?page=${page}&limit=50`, sessionListResponseSchema);
+  return apiRequest(`/sessions?page=${page}&limit=${limit}`, sessionListResponseSchema);
+}
+
+export async function fetchAllTrainingSessions(): Promise<
+  z.infer<typeof sessionListResponseSchema>['data']
+> {
+  const firstPage = await fetchTrainingSessions(1, 100);
+  const sessions = [...firstPage.data];
+
+  for (let page = 2; page <= firstPage.pagination.totalPages; page += 1) {
+    const result = await fetchTrainingSessions(page, 100);
+    sessions.push(...result.data);
+  }
+
+  return sessions;
 }
 
 export async function recordTrainingSession(input: {

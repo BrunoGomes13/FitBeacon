@@ -10,18 +10,27 @@ import { Gym, User } from '../models/index.js';
 import { parseInput, isObjectId } from '../validation.js';
 import { createTokenPair, hashTokenId, verifyRefreshToken } from './tokens.js';
 import { requireAuth } from './middleware.js';
+import { isValidCpf, normalizeCpf } from './cpf.js';
 
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
   email: z.email().trim().toLowerCase(),
+  cpf: z
+    .string()
+    .refine(isValidCpf, 'Informe um CPF válido.')
+    .transform((value) => normalizeCpf(value) ?? ''),
   password: z.string().min(12).max(128),
   gymId: z.string().regex(/^[a-f\d]{24}$/i),
   consentTracking: z.boolean(),
 });
 
 const loginSchema = z.object({
-  email: z.email().trim().toLowerCase(),
+  identifier: z.string().trim().min(1).max(120).optional(),
+  email: z.string().trim().min(1).max(120).optional(),
   password: z.string().min(1).max(128),
+}).refine((value) => value.identifier || value.email, {
+  path: ['identifier'],
+  message: 'Informe seu e-mail ou CPF.',
 });
 
 const refreshSchema = z.object({
@@ -37,14 +46,20 @@ function publicUser(user: {
   gymId: { toString(): string };
   name: string;
   email: string;
+  cpf?: string | null;
   role: 'student' | 'admin';
   consentTracking: boolean;
-}) {
+}, includeMaskedCpf = false) {
   return {
     id: user._id.toString(),
     gymId: user.gymId.toString(),
     name: user.name,
     email: user.email,
+    ...(includeMaskedCpf && user.role === 'student' && user.cpf
+      ? {
+          cpfMasked: `***.${user.cpf.slice(3, 6)}.${user.cpf.slice(6, 9)}-**`,
+        }
+      : {}),
     role: user.role,
     consentTracking: user.consentTracking,
   };
@@ -73,22 +88,43 @@ export function createAuthRouter(config: AppConfig): Router {
     }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
-    const user = await User.create({
-      gymId: gym._id,
-      name: input.name,
-      email: input.email,
-      passwordHash,
-      role: 'student',
-      consentTracking: input.consentTracking,
-    });
+    let user;
+    try {
+      user = await User.create({
+        gymId: gym._id,
+        name: input.name,
+        email: input.email,
+        cpf: input.cpf,
+        passwordHash,
+        role: 'student',
+        consentTracking: input.consentTracking,
+      });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 11000
+      ) {
+        throw new AppError(409, 'ACCOUNT_CONFLICT', 'E-mail ou CPF já cadastrado.');
+      }
+      throw error;
+    }
     const tokens = await createTokenPair(user._id.toString(), config);
 
-    response.status(201).json({ user: publicUser(user), ...tokens });
+    response.status(201).json({ user: publicUser(user, true), ...tokens });
   });
 
   router.post('/login', loginLimiter, async (request, response) => {
     const input = parseInput(loginSchema, request.body);
-    const user = await User.findOne({ email: input.email }).select('+passwordHash');
+    const identifier = input.identifier ?? input.email ?? '';
+    const email = z.email().safeParse(identifier);
+    const cpf = email.success ? null : normalizeCpf(identifier);
+    const user = email.success
+      ? await User.findOne({ email: email.data.toLowerCase() }).select('+passwordHash +cpf')
+      : cpf
+        ? await User.findOne({ cpf }).select('+passwordHash +cpf')
+        : null;
     const passwordMatches = user
       ? await bcrypt.compare(input.password, user.passwordHash)
       : false;
@@ -183,13 +219,13 @@ export function createAuthRouter(config: AppConfig): Router {
   });
 
   router.get('/me', requireAuth(config), async (request, response) => {
-    const user = await User.findById(request.auth?.userId);
+    const user = await User.findById(request.auth?.userId).select('+cpf');
 
     if (!user) {
       throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado.');
     }
 
-    response.json({ user: publicUser(user) });
+    response.json({ user: publicUser(user, true) });
   });
 
   router.patch('/me/consent', requireAuth(config), async (request, response) => {
@@ -198,13 +234,13 @@ export function createAuthRouter(config: AppConfig): Router {
       request.auth?.userId,
       { $set: { consentTracking: input.consentTracking } },
       { returnDocument: 'after', runValidators: true },
-    );
+    ).select('+cpf');
 
     if (!user) {
       throw new AppError(404, 'USER_NOT_FOUND', 'Usuário não encontrado.');
     }
 
-    response.json({ user: publicUser(user) });
+    response.json({ user: publicUser(user, true) });
   });
 
   return router;

@@ -1,4 +1,5 @@
 import { Pressable, Text } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../theme/ThemeProvider';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost';
@@ -36,12 +37,12 @@ export function Button({
       style={({ pressed }) => ({
         alignItems: 'center',
         backgroundColor: isPrimary
-          ? theme.colors.primary
+          ? theme.colors.transparent
           : isSecondary
             ? theme.colors.elevated
             : theme.colors.transparent,
-        borderColor: isSecondary ? theme.colors.border : theme.colors.transparent,
-        borderRadius: theme.radius.md,
+        borderColor: isSecondary ? theme.colors.primary : theme.colors.transparent,
+        borderRadius: isPrimary ? theme.radius.pill : theme.radius.lg,
         borderWidth: isSecondary ? theme.sizes.border : 0,
         flexDirection: 'row',
         gap: theme.spacing.sm,
@@ -56,6 +57,21 @@ export function Button({
         paddingVertical: theme.spacing.sm,
       })}
     >
+      {isPrimary ? (
+        <LinearGradient
+          colors={[theme.colors.primaryStart, theme.colors.primaryEnd]}
+          end={{ x: 1, y: 0 }}
+          start={{ x: 0, y: 0 }}
+          style={{
+            borderRadius: theme.radius.pill,
+            bottom: 0,
+            left: 0,
+            position: 'absolute',
+            right: 0,
+            top: 0,
+          }}
+        />
+      ) : null}
       {loading ? (
         <Text
           accessibilityElementsHidden

@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import {
   Button,
+  BrandLockup,
   Card,
   Chip,
   ErrorState,
@@ -13,9 +14,10 @@ import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
 import { SessionOutboxPanel } from '../src/student/SessionOutboxPanel';
-import { logout, updateTrackingConsent } from '../src/api/services';
+import { fetchCurrentUser, logout, updateTrackingConsent } from '../src/api/services';
 import { useAppStore, type ThemePreference } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
+import { useQuery } from '@tanstack/react-query';
 
 const themeChoices: ReadonlyArray<{ label: string; value: ThemePreference }> = [
   { label: 'Sistema', value: 'system' },
@@ -27,6 +29,12 @@ export default function ProfileScreen() {
   const theme = useTheme();
   const router = useRouter();
   const user = useAppStore((state) => state.user);
+  const profileQuery = useQuery({
+    queryKey: ['me'],
+    queryFn: fetchCurrentUser,
+    enabled: Boolean(user),
+  });
+  const profile = profileQuery.data ?? user;
   const accessToken = useAppStore((state) => state.accessToken);
   const refreshToken = useAppStore((state) => state.refreshToken);
   const consent = useAppStore((state) => state.trackingConsent);
@@ -83,6 +91,7 @@ export default function ProfileScreen() {
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
+        <BrandLockup variant="settings" />
         <ScreenHeader
           eyebrow="FITBEACON · CONTA"
           subtitle="Privacidade, aparência e preferências."
@@ -96,6 +105,17 @@ export default function ProfileScreen() {
               onRetry={() => setLogoutError(null)}
               retryLabel="Entendi"
               title="Não foi possível concluir"
+            />
+          </Card>
+        ) : null}
+        {profileQuery.isError ? (
+          <Card>
+            <ErrorState
+              accessibilityLabel="Falha ao carregar o perfil"
+              description={profileQuery.error.message}
+              onRetry={() => void profileQuery.refetch()}
+              retryLabel="Tentar novamente"
+              title="Não atualizamos seus dados"
             />
           </Card>
         ) : null}
@@ -118,7 +138,7 @@ export default function ProfileScreen() {
               lineHeight: theme.typography.lineHeight.md,
             }}
           >
-            {user?.name ?? 'Aluno FitBeacon'}
+            {profile?.name ?? 'Aluno FitBeacon'}
           </Text>
           <Text
             style={{
@@ -128,8 +148,21 @@ export default function ProfileScreen() {
               lineHeight: theme.typography.lineHeight.md,
             }}
           >
-            {user?.email ?? 'Conta local'}
+            {profile?.email ?? 'Conta local'}
           </Text>
+          {profile?.cpfMasked ? (
+            <Text
+              accessibilityLabel={`CPF ${profile.cpfMasked}`}
+              style={{
+                color: theme.colors.secondary,
+                fontFamily: theme.typography.fontFamily.regular,
+                fontSize: theme.typography.fontSize.sm,
+                lineHeight: theme.typography.lineHeight.md,
+              }}
+            >
+              CPF {profile.cpfMasked}
+            </Text>
+          ) : null}
         </Card>
         <Card>
           <Text
