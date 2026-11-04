@@ -419,11 +419,143 @@ describe('CRUD administrativo', () => {
   });
 });
 
+describe('configuração do mapa e da academia', () => {
+  it('salva posições de equipamento em lote, redefine para automático e valida limites', async () => {
+    const token = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const headers = { Authorization: `Bearer ${token}` };
+    const response = await request(app)
+      .put('/api/v1/admin/equipment/positions')
+      .set(headers)
+      .send({
+        positions: [
+          { equipmentId: equipmentId.toString(), position: { x: 25, y: 80 } },
+          { equipmentId: secondEquipmentId.toString(), position: null },
+        ],
+      });
+    expect(response.status).toBe(200);
+    expect(response.body.updated).toBe(2);
+    expect(await Equipment.findById(equipmentId).select('position').lean()).toMatchObject({
+      position: { x: 25, y: 80 },
+    });
+    expect((await Equipment.findById(secondEquipmentId).select('position').lean())?.position).toBeNull();
+
+    const invalid = await request(app)
+      .put('/api/v1/admin/equipment/positions')
+      .set(headers)
+      .send({ positions: [{ equipmentId: equipmentId.toString(), position: { x: 101, y: 20 } }] });
+    expect(invalid.status).toBe(400);
+    const notFound = await request(app)
+      .put('/api/v1/admin/equipment/positions')
+      .set(headers)
+      .send({
+        positions: [
+          { equipmentId: equipmentId.toString(), position: { x: 40, y: 40 } },
+          { equipmentId: new mongoose.Types.ObjectId().toString(), position: null },
+        ],
+      });
+    expect(notFound.status).toBe(404);
+    expect(await Equipment.findById(equipmentId).select('position').lean()).toMatchObject({
+      position: { x: 25, y: 80 },
+    });
+  });
+
+  it('configura fuso e horário de funcionamento e rejeita intervalo inválido', async () => {
+    const token = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const headers = { Authorization: `Bearer ${token}` };
+    const settings = await request(app)
+      .get('/api/v1/admin/gym/settings')
+      .set(headers)
+      .expect(200);
+    expect(settings.body.data).toMatchObject({
+      timeZone: 'America/Fortaleza',
+      openingHour: 6,
+      closingHour: 22,
+    });
+    const updated = await request(app)
+      .patch('/api/v1/admin/gym/settings')
+      .set(headers)
+      .send({ timeZone: 'America/Sao_Paulo', openingHour: 7, closingHour: 23 })
+      .expect(200);
+    expect(updated.body.data).toMatchObject({
+      timeZone: 'America/Sao_Paulo',
+      openingHour: 7,
+      closingHour: 23,
+    });
+    await request(app)
+      .patch('/api/v1/admin/gym/settings')
+      .set(headers)
+      .send({ openingHour: 22, closingHour: 6 })
+      .expect(400);
+  });
+});
+
 describe('sessões em lote', () => {
+  it('agrega sessões reais beacon e manual enviadas pela API', async () => {
+    const studentToken = await login('student@example.test', 'Senha-Forte-Teste-2026!');
+    const startedAt = new Date(Date.now() - 10 * 60_000);
+    const sessions = [
+      {
+        clientSessionId: randomUUID(),
+        origin: 'beacon',
+        equipmentId: equipmentId.toString(),
+        areaId: areaId.toString(),
+        startedAt: startedAt.toISOString(),
+        endedAt: new Date(startedAt.getTime() + 300_000).toISOString(),
+        sets: [],
+      },
+      {
+        clientSessionId: randomUUID(),
+        origin: 'manual',
+        equipmentId: secondEquipmentId.toString(),
+        areaId: areaId.toString(),
+        startedAt: new Date(startedAt.getTime() + 60_000).toISOString(),
+        endedAt: new Date(startedAt.getTime() + 660_000).toISOString(),
+        sets: [],
+      },
+    ];
+
+    await request(app)
+      .post('/api/v1/sessions/batch')
+      .set('Authorization', `Bearer ${studentToken}`)
+      .send({ sessions })
+      .expect(201);
+
+    const adminToken = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const headers = { Authorization: `Bearer ${adminToken}` };
+    const range = {
+      from: new Date(startedAt.getTime() - 1_000).toISOString(),
+      to: new Date(startedAt.getTime() + 700_000).toISOString(),
+    };
+    const summary = await request(app)
+      .get('/api/v1/reports/summary')
+      .query(range)
+      .set(headers)
+      .expect(200);
+    expect(summary.body.totals).toMatchObject({
+      sessions: 2,
+      totalDurationSec: 900,
+      activeStudents: 1,
+    });
+
+    for (const [origin, duration] of [['beacon', 300], ['manual', 600]] as const) {
+      const report = await request(app)
+        .get('/api/v1/reports/usage')
+        .query({ ...range, groupBy: 'equipment', origin })
+        .set(headers)
+        .expect(200);
+      expect(report.body.data).toHaveLength(1);
+      expect(report.body.data[0]).toMatchObject({
+        sessions: 1,
+        totalDurationSec: duration,
+      });
+    }
+  });
+
   it('deduplica sessões repetidas no lote e torna reenvios idempotentes', async () => {
     const token = await login('student@example.test', 'Senha-Forte-Teste-2026!');
     const session = {
       clientSessionId: randomUUID(),
+      origin: 'manual',
       equipmentId: equipmentId.toString(),
       areaId: areaId.toString(),
       startedAt: '2026-10-25T10:00:00.000Z',
@@ -494,6 +626,7 @@ describe('sessões em lote', () => {
     const startedAt = new Date(Date.now() - 10_000);
     const session = {
       clientSessionId: randomUUID(),
+      origin: 'manual',
       equipmentId: equipmentId.toString(),
       equipmentName: 'Leg press (nome copiado)',
       areaId: areaId.toString(),
@@ -521,10 +654,11 @@ describe('sessões em lote', () => {
       .send({ sessions: [session] });
 
     expect(saved.status).toBe(201);
-    expect(await UsageSession.findOne({ clientSessionId: session.clientSessionId })).toMatchObject({
+    expect(await UsageSession.findOne({ clientSessionId: session.clientSessionId }).lean()).toMatchObject({
       durationSec: 5,
       equipmentName: session.equipmentName,
       areaName: session.areaName,
+      origin: 'manual',
     });
     expect(await SetLog.countDocuments({ sessionId: (await UsageSession.findOne({
       clientSessionId: session.clientSessionId,
@@ -672,6 +806,120 @@ describe('relatórios administrativos', () => {
     });
   });
 
+  it('filtra dados de demonstração por padrão e oferece filtro de origem', async () => {
+    const token = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const startedAt = new Date(Date.now() - 60_000);
+    await UsageSession.create([
+      {
+        clientSessionId: randomUUID(),
+        origin: 'beacon',
+        userId: studentId,
+        equipmentId,
+        areaId,
+        startedAt,
+        endedAt: new Date(startedAt.getTime() + 300_000),
+        durationSec: 300,
+      },
+      {
+        clientSessionId: randomUUID(),
+        origin: 'manual',
+        userId: studentId,
+        equipmentId,
+        areaId,
+        startedAt: new Date(startedAt.getTime() + 1_000),
+        endedAt: new Date(startedAt.getTime() + 601_000),
+        durationSec: 600,
+        isDemo: true,
+      },
+    ]);
+    const headers = { Authorization: `Bearer ${token}` };
+    const realOnly = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({ from: startedAt.toISOString(), to: new Date(Date.now() + 60_000).toISOString() })
+      .set(headers)
+      .expect(200);
+    expect(realOnly.body.data).toMatchObject([
+      { sessions: 1, totalDurationSec: 300 },
+    ]);
+
+    const demoIncluded = await request(app)
+      .get('/api/v1/reports/summary')
+      .query({
+        from: startedAt.toISOString(),
+        to: new Date(Date.now() + 60_000).toISOString(),
+        includeDemo: 'true',
+      })
+      .set(headers)
+      .expect(200);
+    expect(demoIncluded.body.totals).toMatchObject({
+      sessions: 2,
+      totalDurationSec: 900,
+      activeStudents: 1,
+    });
+
+    const manualOnly = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({
+        from: startedAt.toISOString(),
+        to: new Date(Date.now() + 60_000).toISOString(),
+        includeDemo: 'true',
+        origin: 'manual',
+      })
+      .set(headers)
+      .expect(200);
+    expect(manualOnly.body.data).toMatchObject([
+      { sessions: 1, totalDurationSec: 600 },
+    ]);
+  });
+
+  it('agrupa por dia e hora local de Fortaleza para sessões iniciadas às 23h', async () => {
+    const token = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    await Gym.updateOne({ _id: gymId }, { $set: { timeZone: 'America/Fortaleza' } });
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Fortaleza',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(now);
+    const part = (name: string) => Number(parts.find((item) => item.type === name)?.value);
+    const local23 = new Date(Date.UTC(part('year'), part('month') - 1, part('day') + 1, 2, 15));
+    await UsageSession.create({
+      clientSessionId: randomUUID(),
+      origin: 'manual',
+      userId: studentId,
+      equipmentId,
+      areaId,
+      startedAt: local23,
+      endedAt: new Date(local23.getTime() + 60_000),
+      durationSec: 60,
+    });
+    const headers = { Authorization: `Bearer ${token}` };
+    const from = new Date(local23.getTime() - 60_000).toISOString();
+    const to = new Date(local23.getTime() + 120_000).toISOString();
+    const hourly = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({ from, to, groupBy: 'hour', origin: 'manual' })
+      .set(headers)
+      .expect(200);
+    expect(hourly.body.data).toMatchObject([{ _id: 23, sessions: 1, totalDurationSec: 60 }]);
+
+    const daily = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({ from, to, groupBy: 'day', origin: 'manual' })
+      .set(headers)
+      .expect(200);
+    const localDate = `${part('year')}-${String(part('month')).padStart(2, '0')}-${String(part('day')).padStart(2, '0')}`;
+    expect(daily.body.data).toMatchObject([{ _id: localDate, sessions: 1, totalDurationSec: 60 }]);
+
+    const dateOnlyRange = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({ from: localDate, to: localDate, groupBy: 'day', origin: 'manual' })
+      .set(headers)
+      .expect(200);
+    expect(dateOnlyRange.body.data).toMatchObject([{ _id: localDate, sessions: 1 }]);
+  });
+
   it('exporta dados por hora em CSV e bloqueia relatórios de alunos', async () => {
     const adminToken = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
     const csv = await request(app)
@@ -704,6 +952,10 @@ describe('seed de demonstração', () => {
     expect(await Exercise.countDocuments({ gymId: first.gymId })).toBe(20);
     expect(await UsageSession.countDocuments()).toBe(360);
     expect(await SetLog.countDocuments()).toBe(360);
+    expect(await UsageSession.countDocuments({ isDemo: true })).toBe(360);
+    expect(await SetLog.countDocuments({ isDemo: true })).toBe(360);
+    expect(await Equipment.countDocuments({ gymId: first.gymId, isDemo: true })).toBe(12);
+    expect(await Area.countDocuments({ gymId: first.gymId, isDemo: true })).toBe(4);
     expect(
       await Equipment.distinct('beacon.uuid', { gymId: first.gymId }),
     ).toEqual(['00000000-0000-4000-8000-000000000001']);

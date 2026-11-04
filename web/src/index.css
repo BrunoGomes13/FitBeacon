@@ -160,6 +160,21 @@ textarea {
   padding-inline: 0;
 }
 
+.theme-select {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--surface);
+  padding: 0.5rem 0.75rem;
+  color: var(--text);
+}
+
+.theme-select-compact {
+  width: auto;
+  min-height: 2.5rem;
+}
+
 .field {
   width: 100%;
   min-height: 3rem;
@@ -178,6 +193,12 @@ textarea {
 .field:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.field:focus-visible,
+.theme-select:focus-visible {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-ring) 28%, transparent);
 }
 
 .btn {
@@ -248,6 +269,10 @@ textarea {
   color: var(--primary-foreground);
 }
 
+.nav-link[aria-current='page'] svg {
+  color: var(--primary-foreground);
+}
+
 .btn-logout {
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
@@ -264,6 +289,10 @@ textarea {
   padding: 0.875rem;
   text-align: left;
   vertical-align: middle;
+}
+
+.chart-tooltip {
+  box-shadow: 0 0.5rem 1.5rem rgb(17 43 70 / 14%);
 }
 
 .data-table th {

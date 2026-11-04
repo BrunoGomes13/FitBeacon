@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { AppTheme } from '../theme';
+import { subscribeGlobalErrors } from '../utils/globalErrors';
 
 type NativeErrorBoundaryProps = {
   children: ReactNode;
@@ -16,6 +17,19 @@ export class NativeErrorBoundary extends Component<
   NativeErrorBoundaryState
 > {
   state: NativeErrorBoundaryState = { error: null };
+  private unsubscribeGlobalErrors: (() => void) | null = null;
+
+  componentDidMount(): void {
+    this.unsubscribeGlobalErrors = subscribeGlobalErrors((record) => {
+      if (record.fatal) {
+        this.setState({ error: new Error('Falha inesperada no aplicativo.') });
+      }
+    });
+  }
+
+  componentWillUnmount(): void {
+    this.unsubscribeGlobalErrors?.();
+  }
 
   static getDerivedStateFromError(error: Error): NativeErrorBoundaryState {
     return { error };

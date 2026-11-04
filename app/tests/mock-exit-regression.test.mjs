@@ -3,6 +3,21 @@ import { test } from 'node:test';
 import { BeaconStateMachine } from '../src/beacon/BeaconStateMachine.ts';
 import { MockBeaconProvider } from '../src/beacon/MockBeaconProvider.ts';
 
+test('Mock permanece ocioso ao iniciar e aproxima somente após solicitação explícita', async (context) => {
+  context.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1_000 });
+  const provider = new MockBeaconProvider();
+  const readings = [];
+  await provider.start((reading) => readings.push(reading), () => {});
+
+  context.mock.timers.tick(2_000);
+  assert.equal(readings.length, 0);
+
+  provider.simulate('approach');
+  context.mock.timers.tick(500);
+  assert.equal(readings.length, 1);
+  await provider.stop();
+});
+
 test('Mock exit ends a workout after a 25-second stay', async (context) => {
   context.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1_000 });
 
@@ -23,6 +38,7 @@ test('Mock exit ends a workout after a 25-second stay', async (context) => {
     () => {},
   );
 
+  provider.simulate('approach');
   advance(25_000);
   assert.notEqual(machine.getSnapshot().activeBeaconKey, null);
 

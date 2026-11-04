@@ -19,6 +19,11 @@ export function Card({ children, elevated = false }: CardProps) {
         borderWidth: theme.sizes.border,
         gap: theme.spacing.md,
         padding: theme.spacing.lg,
+        shadowColor: theme.mode === 'light' ? '#17324D' : '#000000',
+        shadowOffset: { width: 0, height: theme.mode === 'light' ? 3 : 0 },
+        shadowOpacity: theme.mode === 'light' ? 0.08 : 0,
+        shadowRadius: theme.mode === 'light' ? 12 : 0,
+        elevation: theme.mode === 'light' ? 2 : 0,
       }}
     >
       {children}

@@ -29,6 +29,7 @@ const sessionDateSchema = z.iso
 const sessionSchema = z
   .object({
     clientSessionId: z.uuid(),
+    origin: z.enum(['beacon', 'manual']).default('beacon'),
     equipmentId: z.string().regex(/^[a-f\d]{24}$/i),
     equipmentName: z.string().trim().min(1).max(120).optional(),
     areaId: z.string().regex(/^[a-f\d]{24}$/i),
@@ -93,6 +94,7 @@ function sameSession(
     areaId: Types.ObjectId;
     startedAt: Date;
     endedAt: Date;
+    origin: 'beacon' | 'manual';
   },
   expected: {
     userId: Types.ObjectId;
@@ -100,6 +102,7 @@ function sameSession(
     areaId: Types.ObjectId;
     startedAt: Date;
     endedAt: Date;
+    origin: 'beacon' | 'manual';
   },
 ): boolean {
   return (
@@ -107,7 +110,8 @@ function sameSession(
     existing.equipmentId.equals(expected.equipmentId) &&
     existing.areaId.equals(expected.areaId) &&
     existing.startedAt.getTime() === expected.startedAt.getTime() &&
-    existing.endedAt.getTime() === expected.endedAt.getTime()
+    existing.endedAt.getTime() === expected.endedAt.getTime() &&
+    (existing.origin ?? 'beacon') === expected.origin
   );
 }
 
@@ -278,6 +282,7 @@ export function createStudentRouter(config: AppConfig): Router {
     for (const item of input.sessions) {
       const canonical = JSON.stringify({
         equipmentId: item.equipmentId,
+        origin: item.origin,
         equipmentName: item.equipmentName,
         areaId: item.areaId,
         areaName: item.areaName,
@@ -311,6 +316,7 @@ export function createStudentRouter(config: AppConfig): Router {
         areaId: toObjectId(item.areaId),
         startedAt: item.startedAt,
         endedAt: item.endedAt,
+        origin: item.origin,
       };
       let existing = await UsageSession.findOne({
         clientSessionId: item.clientSessionId,

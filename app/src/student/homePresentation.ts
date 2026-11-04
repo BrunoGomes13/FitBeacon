@@ -8,5 +8,5 @@ export function shouldShowNearbyEquipmentBanner(
 
 export function getEquipmentRoute(equipment: Equipment): string {
   const { uuid, major, minor } = equipment.beacon;
-  return `/equipment?uuid=${encodeURIComponent(uuid)}&major=${major}&minor=${minor}`;
+  return `/equipment?equipmentId=${encodeURIComponent(equipment._id)}&uuid=${encodeURIComponent(uuid)}&major=${major}&minor=${minor}`;
 }

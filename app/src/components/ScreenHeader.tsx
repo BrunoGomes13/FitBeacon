@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -5,9 +6,10 @@ type ScreenHeaderProps = {
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  accessory?: ReactNode;
 };
 
-export function ScreenHeader({ eyebrow, title, subtitle }: ScreenHeaderProps) {
+export function ScreenHeader({ eyebrow, title, subtitle, accessory }: ScreenHeaderProps) {
   const theme = useTheme();
 
   return (
@@ -24,17 +26,21 @@ export function ScreenHeader({ eyebrow, title, subtitle }: ScreenHeaderProps) {
           {eyebrow}
         </Text>
       ) : null}
-      <Text
-        accessibilityRole="header"
-        style={{
-          color: theme.colors.text,
-          fontFamily: theme.typography.fontFamily.bold,
-          fontSize: theme.typography.fontSize['3xl'],
-          lineHeight: theme.typography.lineHeight['3xl'],
-        }}
-      >
-        {title}
-      </Text>
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.sm }}>
+        <Text
+          accessibilityRole="header"
+          style={{
+            color: theme.colors.text,
+            flex: 1,
+            fontFamily: theme.typography.fontFamily.bold,
+            fontSize: theme.typography.fontSize['3xl'],
+            lineHeight: theme.typography.lineHeight['3xl'],
+          }}
+        >
+          {title}
+        </Text>
+        {accessory}
+      </View>
       {subtitle ? (
         <Text
           style={{

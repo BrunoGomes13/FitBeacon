@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AppState, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fetchEquipmentByBeacon, recordTrainingSession } from '../api/services';
+import type { Equipment } from '../api/schemas';
 import { getSessionStorage } from '../api/expoSessionStorage';
 import { useSessionOutbox } from '../api/useSessionOutbox';
 import type {
@@ -27,6 +28,8 @@ import { MockBeaconProvider } from '../beacon/MockBeaconProvider';
 import { RealBeaconProvider } from '../beacon/RealBeaconProvider';
 import { requestBeaconPermissions } from '../beacon/permissions';
 import { SessionConclusionController } from './SessionConclusionController';
+import { createWorkoutStart } from './workoutPresentation';
+import { getWorkoutElapsedSeconds } from './workoutClock';
 import {
   WorkoutCompletionService,
   WorkoutDraftRepository,
@@ -54,6 +57,7 @@ export type StudentBeaconState = {
   canSimulateExit: boolean;
   simulate: (scenario: MockScenario) => void;
   finishSession: () => Promise<void>;
+  startWorkout: (equipment: Equipment, exerciseId: string) => Promise<void>;
   forceEndSession: () => void;
   checkpointWorkout: () => Promise<void>;
   retryFinish: () => Promise<void>;
@@ -117,6 +121,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const { outbox, sync: syncOutbox } = useSessionOutbox(user?.id);
   const developerMode = useAppStore((state) => state.developerMode);
   const useMockBeacons = useAppStore((state) => state.useMockBeacons);
+  const mockBeacon = useAppStore((state) => state.mockBeacon);
   const isMock = developerMode && useMockBeacons;
   const [status, setStatus] = useState<RuntimeStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
@@ -137,6 +142,9 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const checkpointWorkoutRef = useRef<() => Promise<void>>(async () => {});
   const retryFinishRef = useRef<() => Promise<void>>(async () => {});
   const finishActiveWorkoutRef = useRef<() => Promise<void>>(async () => {});
+  const startWorkoutRef = useRef<(equipment: Equipment, exerciseId: string) => Promise<void>>(
+    async () => {},
+  );
   const failedSessionRef = useRef<SessionMeta | null>(null);
   const equipmentByKey = useRef(
     new Map<string, Awaited<ReturnType<typeof fetchEquipmentByBeacon>>>(),
@@ -201,13 +209,25 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     let cancelled = false;
     const machine = new BeaconStateMachine();
     const provider: BeaconProvider = isMock
-      ? new MockBeaconProvider()
+      ? new MockBeaconProvider(mockBeacon)
       : new RealBeaconProvider();
     machineRef.current = machine;
     providerRef.current = provider;
     const conclusionController = new SessionConclusionController(() => {
-      router.dismissAll();
-      router.replace('/home');
+      try {
+        if (router.canDismiss()) router.dismiss();
+      } catch (error) {
+        console.warn('Não foi possível fechar a tela anterior após o treino.', {
+          name: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
+      try {
+        router.replace('/home');
+      } catch (error) {
+        console.warn('Não foi possível navegar ao início após o treino.', {
+          name: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
     });
     const drafts = new WorkoutDraftRepository(getSessionStorage());
     const completionService = outbox
@@ -234,6 +254,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     let scannerTransition: Promise<void> = Promise.resolve();
 
     const updateCountdown = (): void => {
+      const now = Date.now();
       setSessionFeedback((current) => {
         if (current?.countdownUntil === undefined) {
           return current;
@@ -241,7 +262,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
         const remaining = Math.max(
           0,
-          Math.ceil((current.countdownUntil - Date.now()) / 1_000),
+          Math.ceil((current.countdownUntil - now) / 1_000),
         );
         return {
           ...current,
@@ -315,19 +336,6 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         equipmentByKey.current.set(beacon.key, equipment);
         equipmentPromiseByKey.current.delete(beacon.key);
 
-        const session = sessionByKey.current.get(beacon.key);
-
-        if (session) {
-          useAppStore.getState().startWorkout({
-            clientSessionId: session.clientSessionId,
-            equipment,
-            startedAt: new Date(session.startedAt).toISOString(),
-            elapsedSeconds: 0,
-            exerciseIndex: 0,
-            sets: [],
-          });
-        }
-
         useAppStore.getState().setDetectedEquipment(equipment);
 
         if (
@@ -337,7 +345,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         ) {
           lastOpenedEquipmentKey.current = beacon.key;
           router.push(
-            `/equipment?uuid=${encodeURIComponent(beacon.uuid)}&major=${beacon.major}&minor=${beacon.minor}`,
+            `/equipment?equipmentId=${encodeURIComponent(equipment._id)}&uuid=${encodeURIComponent(beacon.uuid)}&major=${beacon.major}&minor=${beacon.minor}`,
           );
         }
 
@@ -352,13 +360,48 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         ownerId: user.id,
         clientSessionId: activeWorkout.clientSessionId,
         equipment: activeWorkout.equipment,
+        origin: activeWorkout.origin,
+        exerciseId: activeWorkout.exerciseId,
         startedAt: activeWorkout.startedAt,
-        elapsedSeconds: activeWorkout.elapsedSeconds,
+        elapsedSeconds: getWorkoutElapsedSeconds(activeWorkout),
         exerciseIndex: activeWorkout.exerciseIndex,
         sets: activeWorkout.sets,
       });
     };
     checkpointWorkoutRef.current = saveCurrentDraft;
+
+    const beginWorkout = async (
+      equipment: Equipment,
+      exerciseId: string,
+    ): Promise<void> => {
+      const beaconKey = `${equipment.beacon.uuid}:${equipment.beacon.major}:${equipment.beacon.minor}`;
+      const beaconSession = sessionByKey.current.get(beaconKey);
+      const activeWorkout = createWorkoutStart(
+        equipment,
+        exerciseId,
+        useAppStore.getState().activeWorkout,
+        beaconSession,
+        createClientSessionId,
+      );
+      useAppStore.getState().startWorkout(activeWorkout);
+      try {
+        await drafts.save({
+          ownerId: user.id,
+          clientSessionId: activeWorkout.clientSessionId,
+          equipment: activeWorkout.equipment,
+          origin: activeWorkout.origin,
+          exerciseId: activeWorkout.exerciseId,
+          startedAt: activeWorkout.startedAt,
+          elapsedSeconds: getWorkoutElapsedSeconds(activeWorkout),
+          exerciseIndex: activeWorkout.exerciseIndex,
+          sets: activeWorkout.sets,
+        });
+      } catch (error) {
+        useAppStore.getState().clearWorkout();
+        throw error;
+      }
+    };
+    startWorkoutRef.current = beginWorkout;
 
     const concludeMeta = (meta: SessionMeta, endedAt: number): Promise<void> => {
       const existing = conclusionPromises.current.get(meta.clientSessionId);
@@ -378,13 +421,19 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           ownerId: user.id,
           clientSessionId: meta.clientSessionId,
           equipment,
+          origin: workout?.clientSessionId === meta.clientSessionId
+            ? workout.origin
+            : 'beacon',
+          exerciseId: workout?.clientSessionId === meta.clientSessionId
+            ? workout.exerciseId
+            : equipment.exerciseIds[0]?._id,
           startedAt:
             workout?.clientSessionId === meta.clientSessionId
               ? workout.startedAt
               : new Date(meta.startedAt).toISOString(),
           elapsedSeconds:
             workout?.clientSessionId === meta.clientSessionId
-              ? workout.elapsedSeconds
+              ? getWorkoutElapsedSeconds(workout, endedAt)
               : Math.max(0, Math.floor((endedAt - meta.startedAt) / 1_000)),
           exerciseIndex:
             workout?.clientSessionId === meta.clientSessionId
@@ -486,6 +535,19 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
     processEvents = (events: BeaconEvent[]): void => {
       for (const event of events) {
+        const activeWorkout = useAppStore.getState().activeWorkout;
+        const eventBeacon =
+          event.type === 'session-end' || event.type === 'session-discarded'
+            ? event.session.beacon
+            : event.beacon;
+        if (
+          activeWorkout &&
+          (activeWorkout.origin === 'manual' ||
+            `${activeWorkout.equipment.beacon.uuid}:${activeWorkout.equipment.beacon.major}:${activeWorkout.equipment.beacon.minor}` !==
+              eventBeacon.key)
+        ) {
+          continue;
+        }
         if (event.type === 'session-start') {
           const meta = {
             clientSessionId: createClientSessionId(),
@@ -495,18 +557,6 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           sessionByKey.current.set(event.beacon.key, meta);
           conclusionController.begin(meta.clientSessionId);
           setExitSimulated(false);
-          const equipment = equipmentByKey.current.get(event.beacon.key);
-
-          if (equipment) {
-            useAppStore.getState().startWorkout({
-              clientSessionId: meta.clientSessionId,
-              equipment,
-              startedAt: new Date(meta.startedAt).toISOString(),
-              elapsedSeconds: 0,
-              exerciseIndex: 0,
-              sets: [],
-            });
-          }
         } else if (event.type === 'zone-enter') {
           if (Platform.OS !== 'web') {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
@@ -554,6 +604,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         if (activeWorkout) {
           void (async () => {
             await saveCurrentDraft();
+            if (activeWorkout.origin === 'manual') return;
             const meta = [...sessionByKey.current.values()].find(
               (session) => session.clientSessionId === activeWorkout.clientSessionId,
             );
@@ -682,8 +733,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             clientSessionId: persistedWorkout.clientSessionId,
             equipment: persistedWorkout.equipment,
             startedAt: persistedWorkout.startedAt,
-            elapsedSeconds: persistedWorkout.elapsedSeconds ??
-              Math.max(0, Math.floor((Date.now() - new Date(persistedWorkout.startedAt).getTime()) / 1_000)),
+            elapsedSeconds: getWorkoutElapsedSeconds(persistedWorkout),
             exerciseIndex: persistedWorkout.exerciseIndex ?? 0,
             sets: persistedWorkout.sets,
           });
@@ -694,8 +744,17 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           useAppStore.getState().startWorkout({
             clientSessionId: recoveredDraft.clientSessionId,
             equipment: recoveredDraft.equipment,
+            origin: recoveredDraft.origin,
+            exerciseId:
+              recoveredDraft.exerciseId ??
+              recoveredDraft.equipment.exerciseIds[recoveredDraft.exerciseIndex]?._id ??
+              recoveredDraft.equipment.exerciseIds[0]?._id ??
+              '',
             startedAt: recoveredDraft.startedAt,
-            elapsedSeconds: recoveredDraft.elapsedSeconds,
+            resumedAt: null,
+            accumulatedSeconds: recoveredDraft.elapsedSeconds,
+            pausedAt: new Date().toISOString(),
+            timerStatus: 'paused',
             exerciseIndex: recoveredDraft.exerciseIndex,
             sets: recoveredDraft.sets,
           });
@@ -713,6 +772,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
                     ownerId: user.id,
                     clientSessionId: recoveredDraft.clientSessionId,
                     equipment: recoveredDraft.equipment,
+                    origin: recoveredDraft.origin,
+                    exerciseId: recoveredDraft.exerciseId,
                     startedAt: recoveredDraft.startedAt,
                     elapsedSeconds: recoveredDraft.elapsedSeconds,
                     exerciseIndex: recoveredDraft.exerciseIndex,
@@ -783,6 +844,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     hasHydrated,
     developerMode,
     isMock,
+    mockBeacon,
     queryClientFromProvider,
     router,
     outbox,
@@ -846,6 +908,10 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
         }
       },
       finishSession: () => {
+        const activeWorkout = useAppStore.getState().activeWorkout;
+        if (activeWorkout?.origin === 'manual') {
+          return finishActiveWorkoutRef.current();
+        }
         if (!machineRef.current.getSnapshot().activeBeaconKey) {
           return finishActiveWorkoutRef.current();
         }
@@ -871,6 +937,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           return Promise.reject(error);
         }
       },
+      startWorkout: (equipment, exerciseId) =>
+        startWorkoutRef.current(equipment, exerciseId),
       forceEndSession: () => {
         if (!isMock) {
           return;

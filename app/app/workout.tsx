@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { AppState, Image, Pressable, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { z } from 'zod';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,12 +10,14 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  Toast,
 } from '../src/components';
 import { AppTextInput } from '../src/components/AppTextInput';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { useStudentBeacon } from '../src/student/StudentBeaconRuntime';
 import { useAppStore } from '../src/state/store';
+import { getWorkoutElapsedSeconds } from '../src/student/workoutClock';
 import { useTheme } from '../src/theme/ThemeProvider';
 
 const setSchema = z.object({
@@ -36,16 +38,42 @@ function formatClock(totalSeconds: number): string {
 export default function WorkoutScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    equipmentId?: string;
+    exerciseId?: string;
+    origin?: string;
+  }>();
   const workout = useAppStore((state) => state.activeWorkout);
   const addWorkoutSet = useAppStore((state) => state.addWorkoutSet);
   const setWorkoutProgress = useAppStore((state) => state.setWorkoutProgress);
+  const pauseWorkout = useAppStore((state) => state.pauseWorkout);
+  const resumeWorkout = useAppStore((state) => state.resumeWorkout);
   const beacon = useStudentBeacon();
-  const [paused, setPaused] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(workout?.elapsedSeconds ?? 0);
+  const paused = workout?.timerStatus === 'paused';
+  const startedAt = workout?.startedAt;
+  const resumedAt = workout?.resumedAt ?? null;
+  const accumulatedSeconds = workout?.accumulatedSeconds ?? 0;
+  const pausedAt = workout?.pausedAt ?? null;
+  const timerStatus = workout?.timerStatus;
+  const [elapsedSeconds, setElapsedSeconds] = useState(
+    () => workout ? getWorkoutElapsedSeconds(workout) : 0,
+  );
   const [restSeconds, setRestSeconds] = useState<number | null>(null);
   const [localSaveFailed, setLocalSaveFailed] = useState(false);
   const [finishSaveFailed, setFinishSaveFailed] = useState(false);
-  const exercise = workout?.equipment.exerciseIds[workout.exerciseIndex];
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const routeEquipmentId = typeof params.equipmentId === 'string' ? params.equipmentId : null;
+  const routeExerciseId = typeof params.exerciseId === 'string' ? params.exerciseId : null;
+  const routeExercise =
+    workout &&
+    routeEquipmentId === workout.equipment._id &&
+    routeExerciseId
+      ? workout.equipment.exerciseIds.find((item) => item._id === routeExerciseId)
+      : undefined;
+  const exercise =
+    routeExercise ??
+    workout?.equipment.exerciseIds.find((item) => item._id === workout.exerciseId) ??
+    workout?.equipment.exerciseIds[workout.exerciseIndex];
   const goBack = (): void => {
     if (!workout) {
       router.back();
@@ -73,16 +101,44 @@ export default function WorkoutScreen() {
   }, [router, workout]);
 
   useEffect(() => {
-    if (paused) return;
-    const timer = setInterval(() => {
-      setElapsedSeconds((seconds) => {
-        const next = seconds + 1;
-        setWorkoutProgress({ elapsedSeconds: next });
-        return next;
-      });
-    }, 1_000);
-    return () => clearInterval(timer);
-  }, [paused, setWorkoutProgress]);
+    if (!workout || !routeExercise || routeExercise._id === workout.exerciseId) return;
+    setWorkoutProgress({
+      exerciseId: routeExercise._id,
+      exerciseIndex: workout.equipment.exerciseIds.findIndex(
+        (item) => item._id === routeExercise._id,
+      ),
+    });
+  }, [routeExercise, setWorkoutProgress, workout]);
+
+  useEffect(() => {
+    if (!startedAt || !timerStatus) return;
+    const updateElapsed = (): void => {
+      setElapsedSeconds(getWorkoutElapsedSeconds({
+        startedAt,
+        resumedAt,
+        accumulatedSeconds,
+        pausedAt,
+        timerStatus,
+      }));
+    };
+    updateElapsed();
+    if (timerStatus === 'paused') return;
+
+    const timer = setInterval(updateElapsed, 1_000);
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') updateElapsed();
+    });
+    return () => {
+      clearInterval(timer);
+      appStateSubscription.remove();
+    };
+  }, [
+    startedAt,
+    resumedAt,
+    accumulatedSeconds,
+    pausedAt,
+    timerStatus,
+  ]);
 
   useEffect(() => {
     if (restSeconds === null || restSeconds <= 0) return;
@@ -92,6 +148,12 @@ export default function WorkoutScreen() {
     );
     return () => clearTimeout(timer);
   }, [restSeconds]);
+
+  useEffect(() => {
+    if (!sessionMessage) return;
+    const timer = setTimeout(() => setSessionMessage(null), 2_000);
+    return () => clearTimeout(timer);
+  }, [sessionMessage]);
 
   const onSubmitSet = form.handleSubmit(async (values) => {
     if (!workout || !exercise || currentSets.length >= recommendedSets) return;
@@ -104,6 +166,7 @@ export default function WorkoutScreen() {
     try {
       await beacon.checkpointWorkout();
       setLocalSaveFailed(false);
+      setSessionMessage('set-registered');
     } catch {
       setLocalSaveFailed(true);
       return;
@@ -126,12 +189,6 @@ export default function WorkoutScreen() {
 
   const isLastExercise =
     !!workout && workout.exerciseIndex >= workout.equipment.exerciseIds.length - 1;
-  const allExercisesComplete =
-    !!workout &&
-    workout.equipment.exerciseIds.every((item) => {
-      const count = workout.sets.filter((set) => set.exerciseId === item._id).length;
-      return count >= (item.recommendedSets ?? 3);
-    });
   const retryConclusion =
     finishSaveFailed || beacon.sessionFeedback?.retryKind === 'conclusion';
   const showLocalRetry =
@@ -213,6 +270,16 @@ export default function WorkoutScreen() {
           subtitle={workout.equipment.name}
           title="Treino em andamento"
         />
+        <Text
+          style={{
+            color: theme.colors.secondary,
+            fontFamily: theme.typography.fontFamily.regular,
+            fontSize: theme.typography.fontSize.xs,
+            lineHeight: theme.typography.lineHeight.md,
+          }}
+        >
+          O treino é salvo automaticamente quando você se afasta do aparelho.
+        </Text>
         <Card>
           <View
             style={{
@@ -247,7 +314,7 @@ export default function WorkoutScreen() {
             <Pressable
               accessibilityLabel={paused ? 'Continuar cronômetro' : 'Pausar cronômetro'}
               accessibilityRole="button"
-              onPress={() => setPaused((current) => !current)}
+              onPress={() => (paused ? resumeWorkout() : pauseWorkout())}
               style={{
                 alignItems: 'center',
                 backgroundColor: theme.colors.primary,
@@ -458,7 +525,17 @@ export default function WorkoutScreen() {
               accessibilityLabel="Próximo exercício"
               label="Próximo exercício"
               onPress={() => {
-                setWorkoutProgress({ exerciseIndex: workout.exerciseIndex + 1 });
+                const nextExercise = workout.equipment.exerciseIds[workout.exerciseIndex + 1];
+                if (!nextExercise) return;
+                setWorkoutProgress({
+                  exerciseIndex: workout.exerciseIndex + 1,
+                  exerciseId: nextExercise._id,
+                });
+                router.setParams({
+                  equipmentId: workout.equipment._id,
+                  exerciseId: nextExercise._id,
+                  origin: workout.origin,
+                });
                 setRestSeconds(null);
               }}
               variant="secondary"
@@ -466,10 +543,23 @@ export default function WorkoutScreen() {
           ) : (
             <Button
               accessibilityLabel="Finalizar treino e voltar ao início"
-              label={allExercisesComplete ? 'Finalizar treino' : 'Concluir treino'}
+              label="Finalizar treino"
               onPress={() => void finishWorkout()}
             />
           )}
+          {!isLastExercise ? (
+            <Button
+              accessibilityLabel="Finalizar treino e voltar ao início"
+              label="Finalizar treino"
+              onPress={() => void finishWorkout()}
+              variant="secondary"
+            />
+          ) : null}
+          <Toast
+            accessibilityLabel="Aviso do treino"
+            message="Série registrada."
+            visible={sessionMessage === 'set-registered'}
+          />
           {showLocalRetry ? (
             <Button
               accessibilityLabel="Tentar salvar o treino novamente"

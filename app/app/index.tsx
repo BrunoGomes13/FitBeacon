@@ -13,7 +13,7 @@ import Svg, {
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
-import brandLogo from '../assets/brand/logo-fitbeacon-transparente.png';
+import { getBrandAssets } from '../src/brand/brandAssets';
 
 function GymBackdrop() {
   return (
@@ -77,6 +77,7 @@ const absoluteFill = {
 export default function AppEntryScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const brand = getBrandAssets(theme.mode);
   const hasHydrated = useAppStore((state) => state.hasHydrated);
   const user = useAppStore((state) => state.user);
   const hasNavigated = useRef(false);
@@ -94,18 +95,18 @@ export default function AppEntryScreen() {
     <View
       style={{
         alignItems: 'center',
-        backgroundColor: '#02070D',
+        backgroundColor: theme.colors.background,
         flex: 1,
         justifyContent: 'center',
         padding: theme.spacing['2xl'],
       }}
     >
-      <GymBackdrop />
+      {theme.mode === 'dark' ? <GymBackdrop /> : null}
       <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center', width: '100%' }}>
         <Image
           accessibilityLabel="FitBeacon, tecnologia que te guia no seu treino"
           resizeMode="contain"
-          source={brandLogo}
+          source={brand.splash}
           style={{ height: 190, maxWidth: 360, width: '100%' }}
         />
       </View>

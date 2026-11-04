@@ -51,6 +51,7 @@ class MemoryStorage {
 
 const session = (clientSessionId) => ({
   clientSessionId,
+  origin: 'beacon',
   equipmentId: 'equipment-id',
   areaId: 'area-id',
   startedAt: '2026-10-30T12:00:00.000Z',
@@ -174,6 +175,41 @@ test('ao exceder o limite descarta a sessão pendente mais antiga e informa o ID
 
   assert.equal(discarded, 'oldest-id');
   assert.equal(queue.getSnapshot().pendingCount, 2);
+});
+
+test('permite tentar novamente uma falha e remove a cópia apenas após envio bem-sucedido', async () => {
+  const storage = new MemoryStorage();
+  const queue = new SessionOutbox(storage, 'user-1');
+  const payload = session('retry-failure-id');
+  await queue.enqueue(payload);
+  await queue.sync(async () => {
+    throw Object.assign(new Error('Dados inválidos.'), { status: 422 });
+  });
+  assert.equal(queue.getSnapshot().failures.length, 1);
+  assert.equal(queue.getSnapshot().pendingCount, 0);
+
+  await queue.retryFailure(payload.clientSessionId);
+  assert.equal(queue.getSnapshot().failures.length, 0);
+  assert.equal(queue.getSnapshot().pendingCount, 1);
+  await queue.sync(async (item) => assert.deepEqual(item, payload), true);
+
+  assert.equal(queue.getSnapshot().pendingCount, 0);
+  assert.equal(storage.values.has('fitbeacon-session-outbox:user-1:record:retry-failure-id'), false);
+});
+
+test('descarta uma falha somente após remover seu registro persistido', async () => {
+  const storage = new MemoryStorage();
+  const queue = new SessionOutbox(storage, 'user-1');
+  const payload = session('discard-failure-id');
+  await queue.enqueue(payload);
+  await queue.sync(async () => {
+    throw Object.assign(new Error('Dados inválidos.'), { status: 422 });
+  });
+
+  await queue.discardFailure(payload.clientSessionId);
+
+  assert.deepEqual(queue.getSnapshot().failures, []);
+  assert.equal(storage.values.has('fitbeacon-session-outbox:user-1:record:discard-failure-id'), false);
 });
 
 test('limpa pendências e falhas quando o consentimento é revogado', async () => {

@@ -25,8 +25,8 @@ export function Chip({
       onPress={onPress}
       style={{
         alignItems: 'center',
-        backgroundColor: selected ? theme.colors.primary : theme.colors.elevated,
-        borderColor: selected ? theme.colors.primary : theme.colors.border,
+        backgroundColor: selected ? theme.colors.primaryStart : theme.colors.elevated,
+        borderColor: selected ? theme.colors.primaryStart : theme.colors.border,
         borderRadius: theme.radius.pill,
         borderWidth: theme.sizes.border,
         justifyContent: 'center',

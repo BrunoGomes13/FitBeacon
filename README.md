@@ -146,6 +146,54 @@ treino aberto para nova tentativa; falhas da API não removem a cópia local. Se
 ao menos uma série são registradas mesmo com menos de 20 segundos. O limite de 20
 segundos descarta somente sessões sem séries.
 
+Treinos iniciados pela detecção real ou pelo Mock recebem origem `beacon`; treinos
+iniciados pela lista de equipamentos, sem uma detecção ativa, recebem origem `manual`.
+O equipamento e o exercício selecionados acompanham a sessão e suas séries, e eventos
+de outro beacon não alteram um treino em andamento.
+
+## Mapa e relatórios administrativos
+
+O mapa usa as áreas e equipamentos cadastrados na academia. Equipamentos com posição
+definida pelo administrador mantêm essa posição; os demais são distribuídos
+automaticamente dentro da zona da própria área. O painel oferece salvamento em lote e
+redefinição para o posicionamento automático. Posições são percentuais entre 0 e 100.
+
+Todos os documentos criados pelo seed recebem `isDemo: true`. Após atualizar uma
+instalação que já possui dados do seed, classifique os documentos existentes antes de
+abrir os relatórios:
+
+```powershell
+npm run mark-demo-data --workspace @fitbeacon/api
+```
+
+O script identifica a academia de demonstração pelo slug, catálogo pelos fixtures do
+seed e sessões pelo identificador determinístico, aluno e equipamentos correspondentes.
+O dashboard, mapa de calor, rankings, ociosos, relatórios e CSV excluem `isDemo: true`
+por padrão; o painel permite incluir demonstração explicitamente. Sessões sem o marcador
+continuam sendo tratadas como dados reais. O script de remoção é somente simulação por
+padrão; ele apaga exclusivamente sessões e séries marcadas como demonstração e nunca
+remove usuários ou catálogo:
+
+```powershell
+npm run purge-demo-data --workspace @fitbeacon/api
+npm run purge-demo-data --workspace @fitbeacon/api -- --confirm
+```
+
+Os relatórios incluem sessões `beacon` e `manual` por padrão, com filtro de origem. O
+fuso da academia (padrão `America/Fortaleza`) e funcionamento (padrão 06:00–22:00)
+podem ser configurados na página Relatórios. Os agrupamentos por dia e hora usam esse
+fuso. Fórmulas:
+
+- **Sessões hoje:** contagem de sessões iniciadas desde a meia-noite local da academia.
+- **Alunos ativos:** quantidade de IDs de aluno distintos com sessão no período.
+- **Tempo médio por aparelho:** duração agregada dividida pelo número de aparelhos com
+  utilização no período.
+- **Taxa de ocupação:** duração de uso dividida pela soma do tempo de funcionamento
+  disponível no período para cada equipamento ativo; cada dia é limitado ao horário
+  de abertura e fechamento configurado.
+- **Equipamentos ociosos:** aparelhos ativos sem sessões no intervalo recente indicado
+  pelo filtro de dias.
+
 Voltar das telas de equipamento ou treino tenta salvar o checkpoint sem encerrar a
 sessão; a tela Início oferece Retomar e Finalizar enquanto houver treino em andamento.
 Em Perfil > Diagnóstico, **Testar armazenamento** verifica gravação, leitura e remoção

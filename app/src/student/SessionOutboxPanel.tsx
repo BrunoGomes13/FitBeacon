@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
-import { Button, Card } from '../components';
+import { Pressable, Text, View } from 'react-native';
+import { AlertTriangle } from 'lucide-react-native';
+import { BottomSheet, Button } from '../components';
 import { useSessionOutbox } from '../api/useSessionOutbox';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -11,85 +12,115 @@ type SessionOutboxPanelProps = {
 
 export function SessionOutboxPanel({ ownerId, consent }: SessionOutboxPanelProps) {
   const theme = useTheme();
-  const { snapshot, syncNow } = useSessionOutbox(ownerId);
-  const [syncing, setSyncing] = useState(false);
+  const { outbox, snapshot, syncNow } = useSessionOutbox(ownerId);
+  const [visible, setVisible] = useState(false);
+  const [workingId, setWorkingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  if (!ownerId) return null;
+  if (!ownerId || snapshot.failures.length === 0) return null;
 
-  const syncSessions = async (): Promise<void> => {
+  const retry = async (clientSessionId: string): Promise<void> => {
+    if (!outbox || !consent) return;
+    setWorkingId(clientSessionId);
     setActionMessage(null);
-    setSyncing(true);
     try {
-      const sent = await syncNow();
-      setActionMessage(
-        sent > 0
-          ? `Sincronização concluída: ${sent} sessão(ões).`
-          : snapshot.pendingCount > 0
-            ? 'Não foi possível sincronizar agora. Consulte o erro abaixo; suas sessões continuam salvas.'
-            : 'Não há sessões pendentes para sincronizar.',
-      );
+      await outbox.retryFailure(clientSessionId);
+      await syncNow();
+      setActionMessage('Nova tentativa concluída.');
     } catch {
-      setActionMessage('Não foi possível sincronizar agora. Consulte o erro abaixo.');
+      setActionMessage('A sessão continua salva no aparelho.');
     } finally {
-      setSyncing(false);
+      setWorkingId(null);
     }
   };
 
-  const textStyle = {
-    color: theme.colors.secondary,
-    fontFamily: theme.typography.fontFamily.regular,
-    fontSize: theme.typography.fontSize.sm,
-    lineHeight: theme.typography.lineHeight.md,
-  } as const;
+  const discard = async (clientSessionId: string): Promise<void> => {
+    if (!outbox) return;
+    setWorkingId(clientSessionId);
+    setActionMessage(null);
+    try {
+      await outbox.discardFailure(clientSessionId);
+      if (snapshot.failures.length <= 1) setVisible(false);
+    } catch {
+      setActionMessage('Não foi possível descartar a sessão.');
+    } finally {
+      setWorkingId(null);
+    }
+  };
 
   return (
-    <Card>
-      <Text
+    <>
+      <Pressable
+        accessibilityLabel={`${snapshot.failures.length} sessões precisam de atenção`}
+        accessibilityRole="button"
+        onPress={() => setVisible(true)}
         style={{
-          color: theme.colors.text,
-          fontFamily: theme.typography.fontFamily.semiBold,
-          fontSize: theme.typography.fontSize.lg,
-          lineHeight: theme.typography.lineHeight.lg,
+          alignItems: 'center',
+          backgroundColor: theme.colors.elevated,
+          borderColor: theme.colors.warning,
+          borderRadius: theme.radius.pill,
+          borderWidth: theme.sizes.border,
+          flexDirection: 'row',
+          gap: theme.spacing.xs,
+          minHeight: 40,
+          paddingHorizontal: theme.spacing.sm,
         }}
       >
-        Sincronização de treinos
-      </Text>
-      <Text style={textStyle}>
-        {snapshot.pendingCount === 1
-          ? '1 sessão aguardando sincronização.'
-          : `${snapshot.pendingCount} sessões aguardando sincronização.`}
-      </Text>
-      <Text style={textStyle}>
-        {snapshot.failures.length === 1
-          ? '1 sessão precisa de atenção.'
-          : `${snapshot.failures.length} sessões precisam de atenção.`}
-      </Text>
-      {snapshot.errorMessage ? (
-        <Text accessibilityRole="alert" style={{ ...textStyle, color: theme.colors.error }}>
-          Erro de sincronização ou armazenamento: {snapshot.errorMessage}
+        <AlertTriangle color={theme.colors.warning} size={16} />
+        <Text style={{ color: theme.colors.warning, fontSize: theme.typography.fontSize.xs }}>
+          {snapshot.failures.length}
         </Text>
-      ) : null}
-      {snapshot.failures.map((failure) => (
-        <View key={failure.clientSessionId} style={{ gap: theme.spacing.xs }}>
-          <Text style={{ ...textStyle, color: theme.colors.error }}>
-            Não foi possível registrar uma sessão: {failure.reason}
+      </Pressable>
+      <BottomSheet
+        accessibilityLabel="Falhas de sincronização de treinos"
+        onClose={() => setVisible(false)}
+        title="Treinos que precisam de atenção"
+        visible={visible}
+      >
+        {snapshot.failures.map((failure) => (
+          <View
+            key={failure.clientSessionId}
+            style={{
+              borderBottomColor: theme.colors.border,
+              borderBottomWidth: theme.sizes.border,
+              gap: theme.spacing.sm,
+              paddingVertical: theme.spacing.md,
+            }}
+          >
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontFamily: theme.typography.fontFamily.medium,
+                fontSize: theme.typography.fontSize.sm,
+              }}
+            >
+              {failure.reason}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
+              <Button
+                accessibilityLabel="Tentar sincronizar este treino novamente"
+                disabled={!consent || workingId === failure.clientSessionId}
+                label="Tentar de novo"
+                loading={workingId === failure.clientSessionId}
+                onPress={() => void retry(failure.clientSessionId)}
+                variant="primary"
+              />
+              <Button
+                accessibilityLabel="Descartar este treino pendente"
+                disabled={workingId === failure.clientSessionId}
+                label="Descartar"
+                onPress={() => void discard(failure.clientSessionId)}
+                variant="secondary"
+              />
+            </View>
+          </View>
+        ))}
+        {actionMessage ? (
+          <Text accessibilityRole="status" style={{ color: theme.colors.secondary }}>
+            {actionMessage}
           </Text>
-        </View>
-      ))}
-      {actionMessage ? (
-        <Text accessibilityRole="status" style={textStyle}>
-          {actionMessage}
-        </Text>
-      ) : null}
-      <Button
-        accessibilityLabel="Sincronizar sessões pendentes agora"
-        disabled={!consent || snapshot.pendingCount === 0}
-        label="Sincronizar agora"
-        loading={syncing}
-        onPress={() => void syncSessions()}
-        variant="secondary"
-      />
-    </Card>
+        ) : null}
+      </BottomSheet>
+    </>
   );
 }

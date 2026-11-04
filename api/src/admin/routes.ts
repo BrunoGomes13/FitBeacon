@@ -5,7 +5,7 @@ import type { AppConfig } from '../config.js';
 import { requireAdmin } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
 import { getAuth, pagination, paginationSchema, toObjectId } from '../http.js';
-import { Area, Equipment, Exercise } from '../models/index.js';
+import { Area, Equipment, Exercise, Gym } from '../models/index.js';
 import { parseInput } from '../validation.js';
 
 const mediaSchema = z
@@ -52,6 +52,33 @@ const equipmentPositionSchema = z.object({
   x: z.number().min(0).max(100),
   y: z.number().min(0).max(100),
 });
+
+const equipmentPositionsSchema = z.object({
+  positions: z.array(z.object({
+    equipmentId: z.string().regex(/^[a-f\d]{24}$/i),
+    position: equipmentPositionSchema.nullable(),
+  })).min(1).max(500).refine(
+    (items) => new Set(items.map((item) => item.equipmentId)).size === items.length,
+    'Cada equipamento só pode aparecer uma vez.',
+  ),
+});
+
+const gymSettingsSchema = z.object({
+  timeZone: z.string().trim().min(1).refine((value) => {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Informe um fuso horário IANA válido.').optional(),
+  openingHour: z.number().int().min(0).max(23).optional(),
+  closingHour: z.number().int().min(1).max(24).optional(),
+}).refine(
+  (value) => value.openingHour === undefined || value.closingHour === undefined ||
+    value.closingHour > value.openingHour,
+  { message: 'O fechamento deve ser posterior à abertura.', path: ['closingHour'] },
+);
 
 const equipmentCreateSchema = z.object({
   areaId: z.string().regex(/^[a-f\d]{24}$/i),
@@ -164,6 +191,25 @@ export function createAdminRouter(config: AppConfig): Router {
   const router = Router();
   router.use(requireAdmin(config));
 
+  router.get('/gym/settings', async (request, response) => {
+    const gym = await Gym.findById(getAuth(request).gymId)
+      .select('name timeZone openingHour closingHour')
+      .lean();
+    if (!gym) throw new AppError(404, 'GYM_NOT_FOUND', 'Academia não encontrada.');
+    response.json({ data: gym });
+  });
+
+  router.patch('/gym/settings', async (request, response) => {
+    const input = parseInput(gymSettingsSchema, request.body);
+    const gym = await Gym.findByIdAndUpdate(
+      getAuth(request).gymId,
+      { $set: input },
+      { returnDocument: 'after', runValidators: true },
+    ).select('name timeZone openingHour closingHour').lean();
+    if (!gym) throw new AppError(404, 'GYM_NOT_FOUND', 'Academia não encontrada.');
+    response.json({ data: gym });
+  });
+
   router.get('/areas', async (request, response) => {
     const { page, limit } = parseInput(paginationSchema, request.query);
     const filter = listFilter(getAuth(request).gymId, request.query.search);
@@ -256,6 +302,25 @@ export function createAdminRouter(config: AppConfig): Router {
       areaId: toObjectId(input.areaId),
       exerciseIds: input.exerciseIds.map(toObjectId),
       gymId,
+    });
+
+    router.put('/equipment/positions', async (request, response) => {
+      const { positions } = parseInput(equipmentPositionsSchema, request.body);
+      const { gymId } = getAuth(request);
+      const equipmentIds = positions.map((item) => toObjectId(item.equipmentId));
+      const existing = await Equipment.find({ _id: { $in: equipmentIds }, gymId })
+        .select('_id')
+        .lean();
+      if (existing.length !== equipmentIds.length) {
+        throw new AppError(404, 'EQUIPMENT_NOT_FOUND', 'Um ou mais equipamentos não foram encontrados.');
+      }
+      await Equipment.bulkWrite(positions.map(({ equipmentId, position }) => ({
+        updateOne: {
+          filter: { _id: toObjectId(equipmentId), gymId },
+          update: { $set: { position } },
+        },
+      })));
+      response.json({ updated: positions.length });
     });
 
     response.status(201).json({ data: equipment });

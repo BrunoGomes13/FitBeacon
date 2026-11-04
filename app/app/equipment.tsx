@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, ChevronRight, Radio, Settings2 } from 'lucide-react-native';
+import { ArrowLeft, ChevronRight, Settings2 } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
-import { Controller, useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   Button,
@@ -17,30 +15,20 @@ import {
   Toast,
   type TabItem,
 } from '../src/components';
-import { AppTextInput } from '../src/components/AppTextInput';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
-import { fetchEquipmentByBeacon } from '../src/api/services';
-import type { Exercise } from '../src/api/schemas';
+import { fetchEquipmentByBeacon, fetchGymEquipment } from '../src/api/services';
 import { useAppStore } from '../src/state/store';
 import { useStudentBeacon } from '../src/student/StudentBeaconRuntime';
+import { getWorkoutRoute } from '../src/student/workoutPresentation';
 import { useTheme } from '../src/theme/ThemeProvider';
 
-type EquipmentTab = 'adjustments' | 'execution' | 'sets';
+type EquipmentTab = 'adjustments' | 'execution';
 
 const equipmentTabs: readonly TabItem<EquipmentTab>[] = [
   { label: 'Regulagem', value: 'adjustments' },
   { label: 'Execução', value: 'execution' },
-  { label: 'Séries', value: 'sets' },
 ];
-
-const setSchema = z.object({
-  load: z.coerce.number().finite().min(0, 'A carga não pode ser negativa.').max(2000),
-  reps: z.coerce.number().int().min(1, 'Informe ao menos uma repetição.').max(1000),
-});
-
-type SetValues = z.infer<typeof setSchema>;
-type SetFormInput = z.input<typeof setSchema>;
 
 function MediaPreview({
   imageUrl,
@@ -126,26 +114,23 @@ function MediaPreview({
   );
 }
 
-function getExerciseId(exercise: Exercise): string {
-  return exercise._id;
-}
-
 export default function EquipmentScreen() {
   const theme = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams<{
+    equipmentId?: string;
     uuid?: string;
     major?: string;
     minor?: string;
   }>();
   const user = useAppStore((state) => state.user);
-  const activeWorkout = useAppStore((state) => state.activeWorkout);
-  const addWorkoutSet = useAppStore((state) => state.addWorkoutSet);
-  const developerMode = useAppStore((state) => state.developerMode);
+  const equipmentId = typeof params.equipmentId === 'string' ? params.equipmentId : undefined;
+  const hasActiveWorkoutForEquipment = useAppStore(
+    (state) => state.activeWorkout?.equipment._id === equipmentId,
+  );
   const beaconRuntime = useStudentBeacon();
   const [activeTab, setActiveTab] = useState<EquipmentTab>('adjustments');
   const [selectedExerciseIndex, setSelectedExerciseIndex] = useState(0);
-  const [restSeconds, setRestSeconds] = useState<number | null>(null);
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const parsedBeacon = useMemo(
     () =>
@@ -159,7 +144,9 @@ export default function EquipmentScreen() {
     [params],
   );
   const equipmentQuery = useQuery({
-    queryKey: parsedBeacon.success
+    queryKey: equipmentId
+      ? ['equipment', 'id', equipmentId]
+      : parsedBeacon.success
       ? [
           'equipment',
           parsedBeacon.data.uuid,
@@ -167,55 +154,41 @@ export default function EquipmentScreen() {
           parsedBeacon.data.minor,
         ]
       : ['equipment', 'invalid-beacon'],
-    queryFn: () =>
-      parsedBeacon.success
-        ? fetchEquipmentByBeacon(parsedBeacon.data)
-        : Promise.reject(new Error('Identificação do aparelho inválida.')),
-    enabled: Boolean(user && parsedBeacon.success),
+    queryFn: async () => {
+      if (equipmentId) {
+        const equipmentList = await fetchGymEquipment();
+        const selected = equipmentList.find((item) => item._id === equipmentId);
+        if (!selected) throw new Error('O equipamento escolhido não foi encontrado.');
+        return selected;
+      }
+      if (!parsedBeacon.success) throw new Error('Identificação do aparelho inválida.');
+      return fetchEquipmentByBeacon(parsedBeacon.data);
+    },
+    enabled: Boolean(user && (equipmentId || parsedBeacon.success)),
   });
   const equipment = equipmentQuery.data;
   const exercise = equipment?.exerciseIds[selectedExerciseIndex];
-  const form = useForm<SetFormInput, undefined, SetValues>({
-    resolver: zodResolver(setSchema),
-    defaultValues: { load: 0, reps: 10 },
-  });
   const goBack = (): void => {
-    if (!activeWorkout) {
-      router.back();
-      return;
-    }
-    void beaconRuntime.checkpointWorkout()
-      .catch(() => undefined)
-      .finally(() => router.back());
+    router.back();
   };
-
+  const startWorkout = async (): Promise<void> => {
+    if (!equipment || !exercise) return;
+    try {
+      await beaconRuntime.startWorkout(equipment, exercise._id);
+      const workout = useAppStore.getState().activeWorkout;
+      if (!workout) throw new Error('O treino não ficou ativo.');
+      router.push(getWorkoutRoute(workout));
+    } catch (error) {
+      setSessionMessage(
+        error instanceof Error ? 'Não foi possível iniciar o treino. Tente novamente.' : 'Não foi possível iniciar o treino.',
+      );
+    }
+  };
   useEffect(() => {
-    if (restSeconds === null || restSeconds <= 0) {
-      return;
-    }
-
-    const timer = setTimeout(() => setRestSeconds((remaining) => (remaining ?? 1) - 1), 1_000);
+    if (!sessionMessage) return;
+    const timer = setTimeout(() => setSessionMessage(null), 3_000);
     return () => clearTimeout(timer);
-  }, [restSeconds]);
-
-  const onSubmitSet = form.handleSubmit((values) => {
-    if (!exercise) {
-      return;
-    }
-
-    addWorkoutSet({
-      exerciseId: getExerciseId(exercise),
-      setNumber:
-        (activeWorkout?.sets.filter(
-          (set) => set.exerciseId === getExerciseId(exercise),
-        ).length ?? 0) + 1,
-      load: values.load,
-      reps: values.reps,
-    });
-    setRestSeconds(90);
-    form.setValue('load', values.load);
-    setSessionMessage('Série registrada neste treino.');
-  });
+  }, [sessionMessage]);
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
@@ -258,30 +231,10 @@ export default function EquipmentScreen() {
         ) : null}
         {equipment ? (
           <>
-            <View>
-              <MediaPreview
-                imageUrl={exercise?.media.imageUrl ?? equipment.media.imageUrl}
-                videoUrl={exercise?.media.videoUrl}
-              />
-              <View
-                accessibilityLabel="Sinal do beacon do equipamento"
-                style={{
-                  alignItems: 'center',
-                  alignSelf: 'center',
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.primary,
-                  borderRadius: theme.radius.pill,
-                  borderWidth: 2,
-                  height: 76,
-                  justifyContent: 'center',
-                  position: 'absolute',
-                  top: 72,
-                  width: 76,
-                }}
-              >
-                <Radio color={theme.colors.primary} size={38} strokeWidth={1.6} />
-              </View>
-            </View>
+            <MediaPreview
+              imageUrl={exercise?.media.imageUrl ?? equipment.media.imageUrl}
+              videoUrl={exercise?.media.videoUrl}
+            />
             <ScreenHeader
               subtitle={`Área: ${equipment.areaId.name}  |  Equipamento: ${String(equipment.beacon.minor).padStart(2, '0')}`}
               title={equipment.name}
@@ -454,119 +407,6 @@ export default function EquipmentScreen() {
                 />
               </Card>
             ) : null}
-            {activeTab === 'sets' && exercise ? (
-              <Card>
-                <Text
-                  style={{
-                    color: theme.colors.text,
-                    fontFamily: theme.typography.fontFamily.semiBold,
-                    fontSize: theme.typography.fontSize.lg,
-                    lineHeight: theme.typography.lineHeight.lg,
-                  }}
-                >
-                  Séries · {exercise.name}
-                </Text>
-                <Text
-                  style={{
-                    color: theme.colors.secondary,
-                    fontFamily: theme.typography.fontFamily.regular,
-                    fontSize: theme.typography.fontSize.sm,
-                    lineHeight: theme.typography.lineHeight.md,
-                  }}
-                >
-                  Recomendação: {exercise.recommendedSets} séries de{' '}
-                  {exercise.recommendedReps} repetições
-                </Text>
-                <Controller
-                  control={form.control}
-                  name="load"
-                  render={({ field, fieldState }) => (
-                    <AppTextInput
-                      accessibilityLabel="Carga em quilogramas"
-                      error={fieldState.error?.message}
-                      keyboardType="decimal-pad"
-                      label="Carga (kg)"
-                      onBlur={field.onBlur}
-                      onChangeText={field.onChange}
-                      value={String(field.value)}
-                    />
-                  )}
-                />
-                <Controller
-                  control={form.control}
-                  name="reps"
-                  render={({ field, fieldState }) => (
-                    <AppTextInput
-                      accessibilityLabel="Repetições realizadas"
-                      error={fieldState.error?.message}
-                      keyboardType="number-pad"
-                      label="Repetições realizadas"
-                      onBlur={field.onBlur}
-                      onChangeText={field.onChange}
-                      value={String(field.value)}
-                    />
-                  )}
-                />
-                <Button
-                  accessibilityLabel="Registrar série concluída"
-                  label="Registrar série"
-                  onPress={() => void onSubmitSet()}
-                />
-                {activeWorkout?.sets.map((set) => (
-                  <Text
-                    key={`${set.exerciseId}-${set.setNumber}`}
-                    style={{
-                      color: theme.colors.success,
-                      fontFamily: theme.typography.fontFamily.medium,
-                      fontSize: theme.typography.fontSize.sm,
-                      lineHeight: theme.typography.lineHeight.md,
-                    }}
-                  >
-                    Série {set.setNumber}: {set.load} kg × {set.reps} repetições
-                  </Text>
-                ))}
-                {restSeconds !== null ? (
-                  <View
-                    style={{
-                      alignItems: 'center',
-                      backgroundColor: theme.colors.elevated,
-                      borderRadius: theme.radius.md,
-                      gap: theme.spacing.sm,
-                      padding: theme.spacing.md,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: theme.colors.info,
-                        fontFamily: theme.typography.fontFamily.semiBold,
-                        fontSize: theme.typography.fontSize.lg,
-                        lineHeight: theme.typography.lineHeight.lg,
-                      }}
-                    >
-                      {restSeconds > 0
-                        ? `Descanso · ${Math.floor(restSeconds / 60)}:${String(restSeconds % 60).padStart(2, '0')}`
-                        : 'Descanso concluído'}
-                    </Text>
-                    <Button
-                      accessibilityLabel="Encerrar temporizador de descanso"
-                      label="Pular descanso"
-                      onPress={() => setRestSeconds(null)}
-                      variant="ghost"
-                    />
-                  </View>
-                ) : null}
-                <Text
-                  style={{
-                    color: theme.colors.secondary,
-                    fontFamily: theme.typography.fontFamily.regular,
-                    fontSize: theme.typography.fontSize.xs,
-                    lineHeight: theme.typography.lineHeight.md,
-                  }}
-                >
-                  O treino é salvo automaticamente quando você se afasta do aparelho.
-                </Text>
-              </Card>
-            ) : null}
             {exercise ? (
               <Card>
                 <Text
@@ -604,8 +444,12 @@ export default function EquipmentScreen() {
             ) : null}
             <Button
               accessibilityLabel="Iniciar treino"
-              label="Iniciar treino"
-              onPress={() => router.push('/workout')}
+              label={
+                hasActiveWorkoutForEquipment
+                  ? 'Retomar treino'
+                  : 'Iniciar treino'
+              }
+              onPress={() => void startWorkout()}
             />
             <Toast
               accessibilityLabel="Atualização da série ou treino"
@@ -613,23 +457,6 @@ export default function EquipmentScreen() {
               tone={sessionMessage?.startsWith('Não') ? 'error' : 'success'}
               visible={sessionMessage !== null}
             />
-            {developerMode && beaconRuntime.isMock ? (
-              <>
-                <Button
-                  accessibilityLabel="Simular saída do aparelho"
-                  disabled={!beaconRuntime.canSimulateExit}
-                  label={beaconRuntime.canSimulateExit ? 'Simular afastamento' : 'Sem sessão ativa'}
-                  onPress={() => beaconRuntime.simulate('exit')}
-                  variant="ghost"
-                />
-                <Button
-                  accessibilityLabel="Encerrar sessão agora"
-                  label="Encerrar sessão agora"
-                  onPress={beaconRuntime.forceEndSession}
-                  variant="secondary"
-                />
-              </>
-            ) : null}
           </>
         ) : null}
         {!equipment && equipmentQuery.isSuccess ? (

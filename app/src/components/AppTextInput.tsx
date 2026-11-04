@@ -22,10 +22,13 @@ export function AppTextInput({
   accessibilityLabel,
   secureToggle = false,
   secureTextEntry,
+  onBlur,
+  onFocus,
   ...props
 }: AppTextInputProps) {
   const theme = useTheme();
   const [isSecureVisible, setIsSecureVisible] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const usesSecureText = secureTextEntry && !isSecureVisible;
 
   return (
@@ -44,9 +47,13 @@ export function AppTextInput({
         style={{
           alignItems: 'center',
           backgroundColor: theme.colors.surface,
-          borderColor: error ? theme.colors.error : theme.colors.border,
+          borderColor: error
+            ? theme.colors.error
+            : isFocused
+              ? theme.colors.primary
+              : theme.colors.border,
           borderRadius: theme.radius.md,
-          borderWidth: theme.sizes.border,
+          borderWidth: isFocused ? 2 : theme.sizes.border,
           flexDirection: 'row',
           minHeight: theme.sizes.controlHeight,
           paddingHorizontal: theme.spacing.md,
@@ -55,6 +62,14 @@ export function AppTextInput({
         <TextInput
           accessibilityLabel={accessibilityLabel}
           autoCapitalize={props.autoCapitalize ?? 'none'}
+          onBlur={(event) => {
+            setIsFocused(false);
+            onBlur?.(event);
+          }}
+          onFocus={(event) => {
+            setIsFocused(true);
+            onFocus?.(event);
+          }}
           placeholderTextColor={theme.colors.secondary}
           secureTextEntry={usesSecureText}
           style={{

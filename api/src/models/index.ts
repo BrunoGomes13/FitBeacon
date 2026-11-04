@@ -13,6 +13,10 @@ const gymSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true, lowercase: true, unique: true },
+    timeZone: { type: String, required: true, default: 'America/Fortaleza' },
+    openingHour: { type: Number, required: true, min: 0, max: 23, default: 6 },
+    closingHour: { type: Number, required: true, min: 1, max: 24, default: 22 },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );
@@ -31,6 +35,7 @@ const userSchema = new Schema(
       required: true,
     },
     consentTracking: { type: Boolean, required: true, default: false },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
     refreshTokenHashes: { type: [String], default: [], select: false },
   },
   { timestamps: true },
@@ -43,6 +48,7 @@ const areaSchema = new Schema(
     name: { type: String, required: true, trim: true },
     description: { type: String, trim: true, default: '' },
     isActive: { type: Boolean, required: true, default: true },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );
@@ -86,6 +92,7 @@ const equipmentSchema = new Schema(
     exerciseIds: [{ type: Schema.Types.ObjectId, ref: 'Exercise' }],
     media: { type: mediaSchema, default: () => ({}) },
     isActive: { type: Boolean, required: true, default: true },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );
@@ -110,6 +117,7 @@ const exerciseSchema = new Schema(
     recommendedSets: { type: Number, required: true, min: 1, max: 20 },
     recommendedReps: { type: Number, required: true, min: 1, max: 100 },
     isActive: { type: Boolean, required: true, default: true },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );
@@ -117,6 +125,7 @@ const exerciseSchema = new Schema(
 const usageSessionSchema = new Schema(
   {
     clientSessionId: { type: String, required: true, trim: true },
+    origin: { type: String, enum: ['beacon', 'manual'], required: true, default: 'beacon' },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     equipmentId: { type: Schema.Types.ObjectId, ref: 'Equipment', required: true },
     equipmentName: { type: String, trim: true, maxlength: 120 },
@@ -125,6 +134,7 @@ const usageSessionSchema = new Schema(
     startedAt: { type: Date, required: true },
     endedAt: { type: Date, required: true },
     durationSec: { type: Number, required: true, min: 1 },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );
@@ -141,6 +151,7 @@ const setLogSchema = new Schema(
     setNumber: { type: Number, required: true, min: 1 },
     load: { type: Number, required: true, min: 0 },
     reps: { type: Number, required: true, min: 1 },
+    isDemo: { type: Boolean, required: true, default: false, index: true },
   },
   { timestamps: true },
 );

@@ -8,6 +8,8 @@
     "build": "tsc --project tsconfig.build.json",
     "start": "node dist/src/server.js",
     "seed": "tsx src/seed.ts",
+    "mark-demo-data": "tsx scripts/mark-demo-data.mjs",
+    "purge-demo-data": "tsx scripts/purge-demo-data.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "node --experimental-vm-modules ../node_modules/jest/bin/jest.js --runInBand",

@@ -101,6 +101,7 @@ async function withMockSession(name, run) {
 }
 
 withMockSession('encerrar duas vezes seguidas é idempotente e silencioso', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.finishManually();
   controller.finishManually();
@@ -133,6 +134,7 @@ test('encerramento simultâneo aguarda a mesma persistência e navega uma vez', 
 });
 
 withMockSession('afastar depois de encerrar manualmente não duplica nem mostra erro', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.finishManually();
   controller.simulateExit();
@@ -144,6 +146,7 @@ withMockSession('afastar depois de encerrar manualmente não duplica nem mostra 
 });
 
 withMockSession('encerrar manualmente depois do afastamento é silencioso', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.simulateExit();
   advance(15_000);
@@ -155,6 +158,7 @@ withMockSession('encerrar manualmente depois do afastamento é silencioso', asyn
 });
 
 withMockSession('é possível aproximar novamente depois do encerramento', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.finishManually();
   controller.simulateApproach();
@@ -177,6 +181,7 @@ withMockSession('afastar sem sessão ativa é um no-op silencioso', async (contr
 });
 
 withMockSession('perda de sinal e encerramento manual no mesmo instante concluem uma vez', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.simulateExit();
   advance(15_000);
@@ -188,6 +193,7 @@ withMockSession('perda de sinal e encerramento manual no mesmo instante concluem
 });
 
 withMockSession('finalizar ou afastar limpa a pilha e não reabre o equipamento com voltar', async (controller, advance) => {
+  controller.simulateApproach();
   advance(35_000);
   controller.finishManually();
   assert.deepEqual(controller.stack, ['/home']);

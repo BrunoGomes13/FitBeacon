@@ -1,0 +1,14 @@
+FitBeacon - logo para MODO CLARO
+
+Estes arquivos sao as versoes da logo para FUNDO CLARO (texto e halteres em azul-marinho #0B1B2E; o pin continua em degrade ciano/azul).
+NAO use sobre fundo escuro: use os arquivos do pacote principal (fitbeacon-brand-assets.zip).
+
+  logo-fitbeacon-claro.png ........... logo completa (simbolo + FitBeacon + slogan), sem fundo
+  simbolo-fitbeacon-claro.png ........ so o simbolo (pin + halteres), sem fundo
+  splash-logo-claro-1024.png ......... logo completa em tela quadrada 1024 (para uso em fundo claro)
+
+Onde copiar no projeto:
+  docs/design/brand/claro/   (referencia)
+  app/assets/brand/          (app)
+  web/src/assets/brand/      (painel)
+O app e o painel devem escolher a logo conforme o tema: escuro -> logo-fitbeacon-transparente.png; claro -> logo-fitbeacon-claro.png.

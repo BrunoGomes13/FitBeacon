@@ -1,16 +1,16 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Rect, Text as SvgText } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, MapPin } from 'lucide-react-native';
 import { Card, EmptyState, ErrorState, Skeleton } from '../src/components';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { StudentTabBar } from '../src/components/StudentTabBar';
-import { fetchGymEquipment } from '../src/api/services';
+import { fetchAreas, fetchGymEquipment } from '../src/api/services';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
-import { areaMapColors, getAreaMapColor, getPositionedEquipment, isDetectedEquipment } from '../src/student/mapPresentation';
+import { getMapZones, getPositionedEquipment, isDetectedEquipment } from '../src/student/mapPresentation';
 
 export default function GymMapScreen() {
   const theme = useTheme();
@@ -22,11 +22,18 @@ export default function GymMapScreen() {
     queryFn: fetchGymEquipment,
     enabled: Boolean(user),
   });
+  const areasQuery = useQuery({
+    queryKey: ['student', 'areas'],
+    queryFn: fetchAreas,
+    enabled: Boolean(user),
+  });
+  const areas = useMemo(() => areasQuery.data ?? [], [areasQuery.data]);
   const positionedEquipment = useMemo(
-    () => getPositionedEquipment(equipmentQuery.data ?? []),
-    [equipmentQuery.data],
+    () => getPositionedEquipment(equipmentQuery.data ?? [], areas, theme.mode),
+    [areas, equipmentQuery.data, theme.mode],
   );
-  const withoutPosition = (equipmentQuery.data?.length ?? 0) - positionedEquipment.length;
+  const zones = useMemo(() => getMapZones(areas, theme.mode), [areas, theme.mode]);
+  const mapHeight = positionedEquipment[0]?.height ?? Math.max(500, 48 + Math.ceil(areas.length / 2) * 150);
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
@@ -43,18 +50,14 @@ export default function GymMapScreen() {
           </Text>
         </Pressable>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.md }}>
-          {[
-            ['Musculação', areaMapColors.strength],
-            ['Cardio', areaMapColors.cardio],
-            ['Funcional', areaMapColors.functional],
-          ].map(([label, color]) => (
-            <View key={label} style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.xs }}>
+          {zones.map(({ _id, name, color }) => (
+            <View key={_id} style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.xs }}>
               <View style={{ backgroundColor: color, borderRadius: theme.radius.pill, height: 10, width: 10 }} />
-              <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>{label}</Text>
+              <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>{name}</Text>
             </View>
           ))}
         </View>
-        {equipmentQuery.isLoading ? <Skeleton lines={3} /> : null}
+        {equipmentQuery.isLoading || areasQuery.isLoading ? <Skeleton lines={3} /> : null}
         {equipmentQuery.isError ? (
           <ErrorState
             accessibilityLabel="Falha ao carregar o mapa"
@@ -64,40 +67,56 @@ export default function GymMapScreen() {
             title="Não carregamos o mapa"
           />
         ) : null}
-        {equipmentQuery.isSuccess && positionedEquipment.length === 0 ? (
+        {areasQuery.isError ? (
+          <ErrorState
+            accessibilityLabel="Falha ao carregar as áreas do mapa"
+            description={areasQuery.error.message}
+            onRetry={() => void areasQuery.refetch()}
+            retryLabel="Tentar novamente"
+            title="Não carregamos as áreas"
+          />
+        ) : null}
+        {equipmentQuery.isSuccess && areasQuery.isSuccess && positionedEquipment.length === 0 ? (
           <Card>
             <EmptyState
-              accessibilityLabel="Mapa ainda sem equipamentos posicionados"
-              description="A administração ainda não posicionou equipamentos na planta."
-              title="Mapa em preparação"
+              accessibilityLabel="Nenhum equipamento cadastrado"
+              description="Os equipamentos cadastrados aparecerão na planta."
+              title="Nenhum equipamento disponível"
             />
           </Card>
         ) : null}
         {equipmentQuery.isSuccess && positionedEquipment.length > 0 ? (
           <Card>
-            <Svg accessibilityLabel="Planta esquemática da academia" role="img" viewBox="0 0 360 520" width="100%" height={440}>
-              <Rect fill={theme.colors.surface} height="520" rx="18" stroke={theme.colors.border} strokeWidth="2" width="360" />
-              <Path d="M12 12H218V166H348V326H234V508H12Z" fill={theme.colors.elevated} stroke={theme.colors.border} strokeWidth="2" />
-              <Path d="M16 16H214V160H16Z" fill={theme.colors.surface} stroke={theme.colors.border} strokeWidth="1" />
-              <Path d="M222 170H344V322H222Z" fill={theme.colors.surface} stroke={theme.colors.border} strokeWidth="1" />
-              <Path d="M16 172H216V504H16Z" fill={theme.colors.surface} stroke={theme.colors.border} strokeWidth="1" />
-              <Path d="M222 330H344V504H222Z" fill={theme.colors.surface} stroke={theme.colors.border} strokeWidth="1" />
-              <Path d="M214 162H222V330H214Z" fill={theme.colors.background} />
-              <SvgText fill={theme.colors.secondary} fontSize="12" x="30" y="40">MUSCULAÇÃO</SvgText>
-              <SvgText fill={theme.colors.secondary} fontSize="12" x="242" y="195">CARDIO</SvgText>
-              <SvgText fill={theme.colors.secondary} fontSize="12" x="34" y="206">FUNCIONAL</SvgText>
-              <SvgText fill={theme.colors.secondary} fontSize="12" x="242" y="364">LIVRE</SvgText>
-              {positionedEquipment.map(({ equipment, position }) => {
-                const color = getAreaMapColor(equipment.areaId.name);
+            <Svg accessibilityLabel="Planta esquemática da academia" role="img" viewBox={`0 0 360 ${mapHeight}`} width="100%" height={Math.min(640, mapHeight)}>
+              <Rect fill={theme.colors.surface} height={mapHeight} rx="18" stroke={theme.colors.border} strokeWidth="2" width="360" />
+              {zones.map((zone) => (
+                <Fragment key={zone._id}>
+                  <Rect
+                    fill={theme.colors.elevated}
+                    height={zone.height}
+                    rx="12"
+                    stroke={zone.color}
+                    strokeOpacity="0.65"
+                    strokeWidth="2"
+                    width={zone.width}
+                    x={zone.x}
+                    y={zone.y}
+                  />
+                  <SvgText fill={zone.color} fontSize="10" x={zone.x + 8} y={zone.y + 16}>
+                    {zone.name.toLocaleUpperCase('pt-BR').slice(0, 24)}
+                  </SvgText>
+                </Fragment>
+              ))}
+              {positionedEquipment.map(({ equipment, position, color }) => {
                 const isDetected = isDetectedEquipment(equipment._id, detectedEquipment?._id);
                 return (
                   <Circle
                     accessibilityLabel={`${equipment.name}${isDetected ? ', você está aqui' : ''}`}
-                    cx={`${position.x}%`}
-                    cy={`${position.y}%`}
-                    fill={isDetected ? theme.colors.primary : color}
+                    cx={position.x}
+                    cy={position.y}
+                    fill={color}
                     key={equipment._id}
-                    onPress={() => router.push(`/equipment?uuid=${encodeURIComponent(equipment.beacon.uuid)}&major=${equipment.beacon.major}&minor=${equipment.beacon.minor}`)}
+                    onPress={() => router.push(`/equipment?equipmentId=${encodeURIComponent(equipment._id)}`)}
                     r={isDetected ? 12 : 8}
                     stroke={theme.colors.text}
                     strokeWidth={isDetected ? 3 : 1}
@@ -116,11 +135,6 @@ export default function GymMapScreen() {
               </Text>
             </View>
           </Card>
-        ) : null}
-        {equipmentQuery.isSuccess && withoutPosition > 0 ? (
-          <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>
-            {withoutPosition} equipamento{withoutPosition === 1 ? '' : 's'} sem posição não aparece{withoutPosition === 1 ? '' : 'm'} no mapa.
-          </Text>
         ) : null}
       </ScreenContainer>
       <StudentTabBar />

@@ -91,10 +91,12 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 
 export async function downloadReportCsv(filters: ReportFilters): Promise<Blob> {
   const params = new URLSearchParams({
-    from: new Date(`${filters.from}T00:00:00.000Z`).toISOString(),
-    to: new Date(`${filters.to}T23:59:59.999Z`).toISOString(),
+    from: filters.from,
+    to: filters.to,
     groupBy: filters.equipmentId ? 'equipment' : filters.areaId ? 'area' : 'equipment',
   });
+  if (filters.includeDemo) params.set('includeDemo', 'true');
+  if (filters.origin) params.set('origin', filters.origin);
   if (filters.areaId) params.set('areaId', filters.areaId);
   if (filters.equipmentId) params.set('equipmentId', filters.equipmentId);
   return apiFetch<Blob>(`/reports/export.csv?${params}`, { responseType: 'blob' });

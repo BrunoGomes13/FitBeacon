@@ -1,33 +1,47 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { PeriodFilter } from '../components/PeriodFilter';
+import { ReportDataFilters } from '../components/ReportDataFilters';
 import { EmptyState, ErrorState, FormField, LoadingState, PageTitle } from '../components/shared';
 import { apiFetch, downloadReportCsv, saveBlob } from '../lib/api';
 import { defaultPeriod, formatCount, formatDuration } from '../lib/format';
-import type { Area, Equipment, ReportSummary, ReportFilters, UsageRow } from '../lib/types';
+import type { Area, Equipment, GymSettings, ReportSummary, ReportFilters, UsageRow } from '../lib/types';
 
 type ListResult<T> = { data: T[] };
 type UsageResult = { data: UsageRow[]; period: { from: string; to: string }; groupBy: string };
 
 function rangeQuery(period: { from: string; to: string }, filters: Omit<ReportFilters, 'from' | 'to'>): string {
   const params = new URLSearchParams({
-    from: new Date(`${period.from}T00:00:00Z`).toISOString(),
-    to: new Date(`${period.to}T23:59:59.999Z`).toISOString(),
+    from: period.from,
+    to: period.to,
     groupBy: filters.equipmentId ? 'equipment' : filters.areaId ? 'area' : 'equipment',
   });
   if (filters.areaId) params.set('areaId', filters.areaId);
   if (filters.equipmentId) params.set('equipmentId', filters.equipmentId);
+  if (filters.includeDemo) params.set('includeDemo', 'true');
+  if (filters.origin) params.set('origin', filters.origin);
   return params.toString();
 }
 
 export function ReportsPage() {
+  const client = useQueryClient();
   const [period, setPeriod] = useState(defaultPeriod);
   const [areaId, setAreaId] = useState('');
   const [equipmentId, setEquipmentId] = useState('');
+  const [includeDemo, setIncludeDemo] = useState(false);
+  const [origin, setOrigin] = useState<'' | 'beacon' | 'manual'>('');
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
-  const filters = { from: period.from, to: period.to, ...(areaId ? { areaId } : {}), ...(equipmentId ? { equipmentId } : {}) };
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const filters: ReportFilters = {
+    from: period.from,
+    to: period.to,
+    ...(areaId ? { areaId } : {}),
+    ...(equipmentId ? { equipmentId } : {}),
+    ...(includeDemo ? { includeDemo } : {}),
+    ...(origin ? { origin } : {}),
+  };
   const params = rangeQuery(period, filters);
   const areas = useQuery({ queryKey: ['admin', 'areas'], queryFn: () => apiFetch<ListResult<Area>>('/admin/areas?limit=100') });
   const equipment = useQuery({ queryKey: ['admin', 'equipment'], queryFn: () => apiFetch<ListResult<Equipment>>('/admin/equipment?limit=100') });
@@ -36,11 +50,29 @@ export function ReportsPage() {
     queryFn: () => apiFetch<UsageResult>(`/reports/usage?${params}`),
   });
   const summary = useQuery({
-    queryKey: ['reports', 'summary', period.from, period.to],
+    queryKey: ['reports', 'summary', period.from, period.to, includeDemo, origin],
     queryFn: () => apiFetch<ReportSummary>(`/reports/summary?${new URLSearchParams({
-      from: new Date(`${period.from}T00:00:00Z`).toISOString(),
-      to: new Date(`${period.to}T23:59:59.999Z`).toISOString(),
+      from: period.from,
+      to: period.to,
+      ...(includeDemo ? { includeDemo: 'true' } : {}),
+      ...(origin ? { origin } : {}),
     })}`),
+  });
+  const gymSettings = useQuery({
+    queryKey: ['admin', 'gym', 'settings'],
+    queryFn: () => apiFetch<{ data: GymSettings }>('/admin/gym/settings'),
+  });
+  const saveSettings = useMutation({
+    mutationFn: (settings: Pick<GymSettings, 'timeZone' | 'openingHour' | 'closingHour'>) =>
+      apiFetch<{ data: GymSettings }>('/admin/gym/settings', {
+        method: 'PATCH',
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: async () => {
+      setSettingsMessage('Fuso horário e funcionamento atualizados.');
+      await client.invalidateQueries({ queryKey: ['reports'] });
+    },
+    onError: (error) => setSettingsMessage(error instanceof Error ? error.message : 'Não foi possível salvar as configurações.'),
   });
 
   const exportCsv = async (): Promise<void> => {
@@ -78,6 +110,46 @@ export function ReportsPage() {
             {(equipment.data?.data ?? []).map((item) => <option key={item._id} value={item._id}>{item.name}</option>)}
           </select>
         </FormField>
+        <ReportDataFilters
+          includeDemo={includeDemo}
+          setIncludeDemo={setIncludeDemo}
+          origin={origin}
+          setOrigin={setOrigin}
+        />
+      </section>
+      <section className="panel mb-5 grid gap-4 p-5">
+        <div>
+          <h2 className="m-0 text-lg font-semibold">Fuso e horário de funcionamento</h2>
+          <p className="mb-0 mt-1 text-sm text-muted">Usados nos agrupamentos locais e no cálculo da taxa de ocupação.</p>
+        </div>
+        {gymSettings.isPending ? <LoadingState label="Carregando configurações da academia" /> : gymSettings.isError ? <ErrorState error={gymSettings.error} retry={() => void gymSettings.refetch()} /> : (
+          <form
+            className="grid gap-3 sm:grid-cols-[minmax(12rem,1fr)_8rem_8rem_auto] sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              saveSettings.mutate({
+                timeZone: String(form.get('timeZone')),
+                openingHour: Number(form.get('openingHour')),
+                closingHour: Number(form.get('closingHour')),
+              });
+            }}
+          >
+            <FormField htmlFor="gym-time-zone" label="Fuso IANA">
+              <input className="field" defaultValue={gymSettings.data.data.timeZone} id="gym-time-zone" name="timeZone" required />
+            </FormField>
+            <FormField htmlFor="gym-opening-hour" label="Abre às">
+              <input className="field" defaultValue={gymSettings.data.data.openingHour} id="gym-opening-hour" max="23" min="0" name="openingHour" required type="number" />
+            </FormField>
+            <FormField htmlFor="gym-closing-hour" label="Fecha às">
+              <input className="field" defaultValue={gymSettings.data.data.closingHour} id="gym-closing-hour" max="24" min="1" name="closingHour" required type="number" />
+            </FormField>
+            <button className="btn btn-secondary" disabled={saveSettings.isPending} type="submit">
+              {saveSettings.isPending ? 'Salvando…' : 'Salvar horário'}
+            </button>
+          </form>
+        )}
+        {settingsMessage ? <p aria-live="polite" className="m-0 text-sm text-muted">{settingsMessage}</p> : null}
       </section>
       {usage.isPending ? <LoadingState label="Carregando relatório" /> : usage.isError ? <ErrorState error={usage.error} retry={() => void usage.refetch()} /> : (
         <section className="panel mb-5 p-5">

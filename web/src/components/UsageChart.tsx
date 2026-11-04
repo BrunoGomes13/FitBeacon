@@ -31,6 +31,7 @@ export function UsageChart({ rows }: { rows: HourRow[] }) {
               borderRadius: 'var(--radius-sm)',
               color: 'var(--text)',
               fontSize: '0.875rem',
+              boxShadow: '0 0.5rem 1.5rem rgb(17 43 70 / 14%)',
             }}
             labelFormatter={(hour) => `${String(hour).padStart(2, '0')}:00 UTC`}
           />

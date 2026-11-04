@@ -10,7 +10,7 @@ import {
   User,
 } from './models/index.js';
 
-const exerciseFixtures = [
+export const exerciseFixtures = [
   ['Agachamento livre', 'Quadríceps'],
   ['Leg press', 'Quadríceps'],
   ['Cadeira extensora', 'Quadríceps'],
@@ -33,10 +33,10 @@ const exerciseFixtures = [
   ['Remo ergométrico', 'Cardiorrespiratório'],
 ] as const;
 
-const areaFixtures = ['Membros inferiores', 'Membros superiores', 'Cardio', 'Funcional'];
-const gymBeaconUuid = '00000000-0000-4000-8000-000000000001';
+export const areaFixtures = ['Membros inferiores', 'Membros superiores', 'Cardio', 'Funcional'];
+export const gymBeaconUuid = '00000000-0000-4000-8000-000000000001';
 
-const equipmentFixtures = [
+export const equipmentFixtures = [
   ['Leg press 45°', 0, 25, 16],
   ['Cadeira extensora', 0, 42, 16],
   ['Mesa flexora', 0, 58, 16],
@@ -51,7 +51,7 @@ const equipmentFixtures = [
   ['Smith machine', 3, 30, 88],
 ] as const;
 
-function beaconUuid(index: number): string {
+export function beaconUuid(index: number): string {
   return `00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`;
 }
 
@@ -60,7 +60,16 @@ export async function seedData(
 ): Promise<{ gymId: string; sessions: number }> {
   const gym = await Gym.findOneAndUpdate(
     { slug: 'fitbeacon-demo' },
-    { $setOnInsert: { name: 'Academia FitBeacon Demo', slug: 'fitbeacon-demo' } },
+    {
+      $set: { isDemo: true },
+      $setOnInsert: {
+        name: 'Academia FitBeacon Demo',
+        slug: 'fitbeacon-demo',
+        timeZone: 'America/Fortaleza',
+        openingHour: 6,
+        closingHour: 22,
+      },
+    },
     { upsert: true, returnDocument: 'after' },
   );
   const [adminPasswordHash, studentPasswordHash] = await Promise.all([
@@ -76,6 +85,7 @@ export async function seedData(
         passwordHash: adminPasswordHash,
         role: 'admin',
         consentTracking: true,
+        isDemo: true,
       },
     },
     { upsert: true, returnDocument: 'after', runValidators: true },
@@ -89,6 +99,7 @@ export async function seedData(
         passwordHash: studentPasswordHash,
         role: 'student',
         consentTracking: true,
+        isDemo: true,
       },
     },
     { upsert: true, returnDocument: 'after', runValidators: true },
@@ -97,7 +108,7 @@ export async function seedData(
     areaFixtures.map((name) =>
       Area.findOneAndUpdate(
         { gymId: gym._id, name },
-        { $setOnInsert: { gymId: gym._id, name, description: `Área ${name}` } },
+        { $set: { isDemo: true }, $setOnInsert: { gymId: gym._id, name, description: `Área ${name}` } },
         { upsert: true, returnDocument: 'after' },
       ),
     ),
@@ -125,6 +136,7 @@ export async function seedData(
             recommendedReps: 8 + (index % 5),
             isActive: true,
           },
+          $set: { isDemo: true },
         },
         { upsert: true, returnDocument: 'after' },
       ),
@@ -153,6 +165,7 @@ export async function seedData(
               rssiEnter: -65,
               rssiExit: -75,
             },
+            isDemo: true,
           },
           $setOnInsert: {
             gymId: gym._id,
@@ -213,6 +226,7 @@ export async function seedData(
             endedAt,
             durationSec,
           },
+          $set: { isDemo: true },
         },
         { upsert: true, returnDocument: 'after' },
       );
@@ -230,6 +244,7 @@ export async function seedData(
             load: 20 + ((equipmentIndex * 5 + day) % 80),
             reps: 8 + ((day + equipmentIndex) % 5),
           },
+          $set: { isDemo: true },
         },
         { upsert: true, returnDocument: 'after' },
       );

@@ -8,6 +8,10 @@ import {
   getEquipmentRoute,
   shouldShowNearbyEquipmentBanner,
 } from '../src/student/homePresentation.ts';
+import {
+  createWorkoutStart,
+  getWorkoutRoute,
+} from '../src/student/workoutPresentation.ts';
 
 const equipment = {
   _id: 'equipment-id',
@@ -32,8 +36,60 @@ test('exibe o banner somente após detectar equipamento e abre o detalhe correto
   assert.equal(shouldShowNearbyEquipmentBanner(equipment), true);
   assert.equal(
     getEquipmentRoute(equipment),
-    '/equipment?uuid=b6f2d3b0-2a7c-4c52-8e90-02bd52100001&major=12&minor=34',
+    '/equipment?equipmentId=equipment-id&uuid=b6f2d3b0-2a7c-4c52-8e90-02bd52100001&major=12&minor=34',
   );
+});
+
+test('treino inicia o exercício escolhido e mantém identidade, origem e séries ao retomar', () => {
+  const withExercises = {
+    ...equipment,
+    exerciseIds: [{ _id: 'exercise-a' }, { _id: 'exercise-b' }],
+  };
+  const manualWorkout = createWorkoutStart(
+    withExercises,
+    'exercise-b',
+    null,
+    undefined,
+    () => 'manual-session',
+    () => 1_000,
+  );
+  assert.equal(manualWorkout.origin, 'manual');
+  assert.equal(manualWorkout.exerciseId, 'exercise-b');
+  assert.equal(manualWorkout.exerciseIndex, 1);
+  assert.match(getWorkoutRoute(manualWorkout), /exerciseId=exercise-b/);
+  assert.match(getWorkoutRoute(manualWorkout), /origin=manual/);
+
+  const withProgress = {
+    ...manualWorkout,
+    accumulatedSeconds: 42,
+    resumedAt: null,
+    pausedAt: new Date(43_000).toISOString(),
+    timerStatus: 'paused',
+    sets: [{ exerciseId: 'exercise-a', setNumber: 1, load: 20, reps: 12 }],
+  };
+  const resumedWorkout = createWorkoutStart(
+    withExercises,
+    'exercise-a',
+    withProgress,
+    undefined,
+    () => 'unused-session',
+  );
+  assert.equal(resumedWorkout.clientSessionId, 'manual-session');
+  assert.equal(resumedWorkout.origin, 'manual');
+  assert.equal(resumedWorkout.exerciseId, 'exercise-a');
+  assert.equal(resumedWorkout.accumulatedSeconds, 42);
+  assert.equal(resumedWorkout.timerStatus, 'paused');
+  assert.deepEqual(resumedWorkout.sets, withProgress.sets);
+
+  const beaconWorkout = createWorkoutStart(
+    withExercises,
+    'exercise-a',
+    null,
+    { clientSessionId: 'beacon-session', startedAt: 1_000 },
+    () => 'unused-session',
+  );
+  assert.equal(beaconWorkout.origin, 'beacon');
+  assert.equal(beaconWorkout.clientSessionId, 'beacon-session');
 });
 
 test('calcula progresso real semanal e mensal a partir do histórico', () => {

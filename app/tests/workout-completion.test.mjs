@@ -261,6 +261,21 @@ test('copia nomes corretos de exercícios diferentes para o payload histórico',
   );
 });
 
+test('preserva o tempo líquido do cronômetro pausado na duração da sessão', async () => {
+  let payload;
+  const { service } = await setup(async (session) => { payload = session; });
+  const draft = createDraft(createSets(1), 120, 'paused-session');
+  draft.startedAt = new Date(now - 140_000).toISOString();
+
+  const result = await service.complete(draft, now);
+
+  assert.equal(result.status, 'saved');
+  assert.equal(
+    (Date.parse(payload.endedAt) - Date.parse(payload.startedAt)) / 1_000,
+    120,
+  );
+});
+
 test('duas conclusões simultâneas salvam e enviam uma única sessão', async () => {
   let sendCount = 0;
   const { service } = await setup(async () => { sendCount += 1; });

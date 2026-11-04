@@ -30,7 +30,9 @@ import {
   getEquipmentRoute,
   shouldShowNearbyEquipmentBanner,
 } from '../src/student/homePresentation';
+import { getWorkoutRoute } from '../src/student/workoutPresentation';
 import { useAppStore } from '../src/state/store';
+import { useShallow } from 'zustand/react/shallow';
 import { useTheme } from '../src/theme/ThemeProvider';
 
 function AreaIcon({ name, color }: { name: string; color: string }) {
@@ -150,7 +152,12 @@ export default function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const user = useAppStore((state) => state.user);
-  const activeWorkout = useAppStore((state) => state.activeWorkout);
+  const activeWorkout = useAppStore(useShallow((state) => state.activeWorkout
+    ? {
+        equipmentName: state.activeWorkout.equipment.name,
+        route: getWorkoutRoute(state.activeWorkout),
+      }
+    : null));
   const consent = useAppStore((state) => state.trackingConsent);
   const developerMode = useAppStore((state) => state.developerMode);
   const beacon = useStudentBeacon();
@@ -252,13 +259,13 @@ export default function HomeScreen() {
               Treino em andamento
             </Text>
             <Text style={{ color: theme.colors.secondary }}>
-              {activeWorkout.equipment.name}
+              {activeWorkout.equipmentName}
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
               <Button
                 accessibilityLabel="Retomar treino em andamento"
                 label="Retomar"
-                onPress={() => router.push('/workout')}
+                onPress={() => router.push(activeWorkout.route)}
                 variant="primary"
               />
               <Button

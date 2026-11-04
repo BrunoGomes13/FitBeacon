@@ -10,6 +10,7 @@ const sessionSetSchema = z.object({
 
 export const completedSessionSchema = z.object({
   clientSessionId: z.string().min(1),
+  origin: z.enum(['beacon', 'manual']).default('beacon'),
   equipmentId: z.string().min(1),
   equipmentName: z.string().trim().min(1).max(120).optional(),
   areaId: z.string().min(1),
@@ -219,6 +220,47 @@ export class SessionOutbox {
       for (const failure of index.failures) await this.storage.removeItem(this.recordKey(failure.clientSessionId));
       await this.storage.removeItem(this.indexKey);
       return { index: emptyIndex(), result: undefined };
+    });
+  }
+
+  async retryFailure(clientSessionId: string): Promise<void> {
+    await this.updateIndex(async (index) => {
+      if (!index.failures.some((failure) => failure.clientSessionId === clientSessionId)) {
+        return { index, result: undefined };
+      }
+      const record = await this.readRecord(clientSessionId);
+      await this.storage.setItem(
+        this.recordKey(clientSessionId),
+        JSON.stringify({ ...record, attempts: 0, retryAt: 0 }),
+      );
+      return {
+        index: {
+          ...index,
+          pendingIds: [...index.pendingIds, clientSessionId],
+          failures: index.failures.filter(
+            (failure) => failure.clientSessionId !== clientSessionId,
+          ),
+        },
+        result: undefined,
+      };
+    });
+  }
+
+  async discardFailure(clientSessionId: string): Promise<void> {
+    await this.updateIndex(async (index) => {
+      if (!index.failures.some((failure) => failure.clientSessionId === clientSessionId)) {
+        return { index, result: undefined };
+      }
+      await this.storage.removeItem(this.recordKey(clientSessionId));
+      return {
+        index: {
+          ...index,
+          failures: index.failures.filter(
+            (failure) => failure.clientSessionId !== clientSessionId,
+          ),
+        },
+        result: undefined,
+      };
     });
   }
 

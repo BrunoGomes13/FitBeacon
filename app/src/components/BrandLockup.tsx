@@ -1,7 +1,6 @@
 import { Image, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import fullLogo from '../../assets/brand/logo-fitbeacon-transparente.png';
-import symbol from '../../assets/brand/simbolo-fitbeacon-transparente.png';
+import { getBrandAssets } from '../brand/brandAssets';
 
 type BrandLockupProps = {
   variant: 'full' | 'home' | 'settings';
@@ -9,6 +8,7 @@ type BrandLockupProps = {
 
 export function BrandLockup({ variant }: BrandLockupProps) {
   const theme = useTheme();
+  const brand = getBrandAssets(theme.mode);
 
   if (variant === 'full') {
     return (
@@ -28,7 +28,7 @@ export function BrandLockup({ variant }: BrandLockupProps) {
         <Image
           accessibilityLabel="Logo FitBeacon"
           resizeMode="contain"
-          source={fullLogo}
+          source={brand.full}
           style={{ height: 150, maxWidth: 360, width: '100%' }}
         />
       </View>
@@ -52,7 +52,7 @@ export function BrandLockup({ variant }: BrandLockupProps) {
       <Image
         accessibilityLabel="Símbolo FitBeacon"
         resizeMode="contain"
-        source={symbol}
+        source={brand.symbol}
         style={{ height: 36, width: 36 }}
       />
       {variant === 'home' ? (

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { filterSessionsByPeriod, getSessionExerciseCount, getTrainingTitle, getUsageRanking } from '../src/api/trainingProgress.ts';
 import { filterEquipment, getEquipmentAreaFilter } from '../src/student/equipmentPresentation.ts';
-import { getAreaMapColor, getPositionedEquipment, isDetectedEquipment } from '../src/student/mapPresentation.ts';
+import { getMapZones, getPositionedEquipment, isDetectedEquipment } from '../src/student/mapPresentation.ts';
 import { getNextThemePreference, getProfileSectionRoute, getSettingsRoute, profileSections } from '../src/student/profilePresentation.ts';
 
 const equipment = [
@@ -56,11 +56,34 @@ test('busca e filtra equipamentos por área', () => {
   assert.deepEqual(filterEquipment(equipment, 'Cardio', '9'), [equipment[1]]);
 });
 
-test('mapa inclui posições cadastradas e destaca o aparelho detectado', () => {
-  const positioned = getPositionedEquipment(equipment);
-  assert.equal(positioned.length, 1);
+test('mapa distribui equipamentos sem posição pelas áreas reais e destaca o aparelho detectado', () => {
+  const areas = [
+    { _id: 'strength', name: 'Membros inferiores' },
+    { _id: 'upper', name: 'Membros superiores' },
+    { _id: 'cardio', name: 'Cardio' },
+    { _id: 'functional', name: 'Funcional' },
+  ];
+  const allEquipment = [
+    ...equipment,
+    {
+      ...equipment[0],
+      _id: 'upper-machine',
+      areaId: { _id: 'upper', name: 'Membros superiores', description: '' },
+      position: null,
+    },
+    {
+      ...equipment[0],
+      _id: 'functional-machine',
+      areaId: { _id: 'functional', name: 'Funcional', description: '' },
+      position: undefined,
+    },
+  ];
+  const positioned = getPositionedEquipment(allEquipment, areas);
+  assert.equal(positioned.length, allEquipment.length);
   assert.equal(positioned[0].equipment._id, 'strength-machine');
-  assert.equal(getAreaMapColor('Cardio'), '#28DB9E');
+  assert.equal(positioned[1].automatic, true);
+  assert.equal(positioned[1].color, getMapZones(areas)[2].color);
+  assert.equal(new Set(positioned.map((item) => item.color)).size, 4);
   assert.equal(isDetectedEquipment('strength-machine', 'strength-machine'), true);
   assert.equal(isDetectedEquipment('cardio-machine', 'strength-machine'), false);
 });

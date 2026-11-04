@@ -1,6 +1,7 @@
 import type {
   BeaconProvider,
   BeaconProviderState,
+  BeaconAdvertisement,
   BeaconReading,
   MockScenario,
 } from './types';
@@ -8,25 +9,19 @@ import type {
 export class MockBeaconProvider implements BeaconProvider {
   readonly kind = 'mock' as const;
   readonly simulate = (scenario: MockScenario): void => {
-    if (scenario === 'exit' && !this.interval) {
-      this.scenario = 'approach';
+    if (scenario === 'exit') {
+      if (this.scenario === null) return;
+      if (this.interval) {
+        clearInterval(this.interval);
+        this.interval = null;
+      }
+      this.scenario = null;
       this.step = 0;
       return;
     }
 
     this.scenario = scenario;
     this.step = 0;
-
-    if (scenario === 'exit') {
-      if (this.interval) {
-        clearInterval(this.interval);
-        this.interval = null;
-      }
-      this.scenario = 'approach';
-      this.step = 0;
-      return;
-    }
-
     if (this.onReading && !this.interval) {
       this.interval = setInterval(() => this.emitReading(), 500);
       this.emitReading();
@@ -35,8 +30,13 @@ export class MockBeaconProvider implements BeaconProvider {
   private interval: ReturnType<typeof setInterval> | null = null;
   private onReading: ((reading: BeaconReading) => void) | null = null;
   private onState: ((state: BeaconProviderState) => void) | null = null;
-  private scenario: MockScenario = 'approach';
+  private scenario: MockScenario | null = null;
   private step = 0;
+  private readonly selectedBeacon: BeaconAdvertisement | null;
+
+  constructor(selectedBeacon: BeaconAdvertisement | null = null) {
+    this.selectedBeacon = selectedBeacon;
+  }
 
   async start(
     onReading: (reading: BeaconReading) => void,
@@ -49,11 +49,10 @@ export class MockBeaconProvider implements BeaconProvider {
 
     this.onReading = onReading;
     this.onState = onState;
-    this.scenario = 'approach';
+    this.scenario = null;
     this.step = 0;
     this.onState({ status: 'scanning' });
     this.interval = setInterval(() => this.emitReading(), 500);
-    this.emitReading();
   }
 
   async stop(): Promise<void> {
@@ -69,6 +68,7 @@ export class MockBeaconProvider implements BeaconProvider {
   }
 
   private emitReading(): void {
+    if (!this.scenario) return;
     this.step += 1;
     const observedAt = Date.now();
     const firstBeaconRssi =
@@ -94,6 +94,13 @@ export class MockBeaconProvider implements BeaconProvider {
   }
 
   private getMockBeacon(minor: number) {
+    if (this.selectedBeacon) {
+      return {
+        ...this.selectedBeacon,
+        key: `${this.selectedBeacon.uuid}:${this.selectedBeacon.major}:${minor === 1 ? this.selectedBeacon.minor : this.selectedBeacon.minor + minor - 1}`,
+        minor: minor === 1 ? this.selectedBeacon.minor : this.selectedBeacon.minor + minor - 1,
+      };
+    }
     const configuredUuid = process.env.EXPO_PUBLIC_BEACON_GYM_UUID?.trim().toLowerCase();
     const uuid = configuredUuid ?? '00000000-0000-4000-8000-000000000001';
 

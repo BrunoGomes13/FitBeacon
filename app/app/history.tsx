@@ -65,11 +65,11 @@ export default function HistoryScreen() {
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
         <ScreenHeader
+          accessory={<SessionOutboxPanel consent={consent} ownerId={user?.id} />}
           eyebrow="FITBEACON · EVOLUÇÃO"
           subtitle="Seus aparelhos, séries e tempo de treino."
           title="Histórico"
         />
-        <SessionOutboxPanel consent={consent} ownerId={user?.id} />
         <Button
           accessibilityLabel="Abrir relatórios pessoais de uso"
           label="Relatórios de uso"

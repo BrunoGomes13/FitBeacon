@@ -1,11 +1,12 @@
 import { lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Clock3, Dumbbell, Users } from 'lucide-react';
+import { Activity, Clock3, Dumbbell, RefreshCw, Users } from 'lucide-react';
 import { useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { defaultPeriod, formatCount, formatDuration, formatPercent } from '../lib/format';
 import type { ReportSummary } from '../lib/types';
 import { PeriodFilter } from '../components/PeriodFilter';
+import { ReportDataFilters } from '../components/ReportDataFilters';
 import { EmptyState, ErrorState, LoadingState, PageTitle } from '../components/shared';
 
 const UsageChart = lazy(() => import('../components/UsageChart').then((module) => ({ default: module.UsageChart })));
@@ -18,15 +19,17 @@ export function dashboardKpis(summary: ReportSummary): Kpi[] {
     ? summary.totals.totalDurationSec / usedEquipmentCount
     : 0;
   return [
-    { label: 'Sessões no período', value: formatCount(summary.totals.sessions), icon: Activity, note: 'sessões registradas' },
+    { label: 'Sessões hoje', value: formatCount(summary.totals.sessionsToday ?? 0), icon: Activity, note: `hoje · ${summary.timeZone ?? 'America/Fortaleza'}` },
     { label: 'Alunos ativos', value: formatCount(summary.totals.activeStudents), icon: Users, note: 'identidades não exibidas' },
     { label: 'Tempo médio por aparelho', value: formatDuration(averagePerEquipment), icon: Clock3, note: 'no período, por aparelho utilizado' },
     { label: 'Taxa de ocupação', value: formatPercent(summary.totals.occupancyRate), icon: Dumbbell, note: 'do tempo disponível' },
   ];
 }
 
-function queryString(from: string, to: string): string {
-  const params = new URLSearchParams({ from: new Date(`${from}T00:00:00Z`).toISOString(), to: new Date(`${to}T23:59:59.999Z`).toISOString() });
+function queryString(from: string, to: string, includeDemo: boolean, origin: '' | 'beacon' | 'manual'): string {
+  const params = new URLSearchParams({ from, to });
+  if (includeDemo) params.set('includeDemo', 'true');
+  if (origin) params.set('origin', origin);
   return params.toString();
 }
 
@@ -52,16 +55,37 @@ function RankedList({ title, rows }: { title: string; rows: ReportSummary['ranki
 
 export function DashboardPage() {
   const [period, setPeriod] = useState(defaultPeriod);
+  const [includeDemo, setIncludeDemo] = useState(false);
+  const [origin, setOrigin] = useState<'' | 'beacon' | 'manual'>('');
   const summaryQuery = useQuery({
-    queryKey: ['reports', 'summary', period.from, period.to],
-    queryFn: () => apiFetch<ReportSummary>(`/reports/summary?${queryString(period.from, period.to)}`),
+    queryKey: ['reports', 'summary', period.from, period.to, includeDemo, origin],
+    queryFn: () => apiFetch<ReportSummary>(`/reports/summary?${queryString(period.from, period.to, includeDemo, origin)}`),
+    refetchInterval: 60_000,
   });
 
   return (
     <>
       <PageTitle title="Visão geral" description="Indicadores agregados da academia; dados de alunos permanecem anonimizados." />
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <p className="m-0 text-sm text-muted">Selecione o período dos indicadores.</p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="grid gap-3">
+            <p className="m-0 text-sm text-muted">Selecione o período dos indicadores.</p>
+            <ReportDataFilters
+              includeDemo={includeDemo}
+              setIncludeDemo={setIncludeDemo}
+              origin={origin}
+              setOrigin={setOrigin}
+            />
+          </div>
+          <button
+            className="btn btn-secondary"
+            disabled={summaryQuery.isFetching}
+            onClick={() => void summaryQuery.refetch()}
+            type="button"
+          >
+            <RefreshCw aria-hidden="true" size={16} /> Atualizar
+          </button>
+        </div>
         <PeriodFilter from={period.from} to={period.to} setFrom={(from) => setPeriod((current) => ({ ...current, from }))} setTo={(to) => setPeriod((current) => ({ ...current, to }))} />
       </div>
       {summaryQuery.isPending ? <LoadingState label="Carregando indicadores" /> : summaryQuery.isError ? <ErrorState error={summaryQuery.error} retry={() => void summaryQuery.refetch()} /> : (
@@ -78,10 +102,18 @@ export function DashboardPage() {
               </article>
             ))}
           </div>
+          {summaryQuery.data.totals.sessions === 0 ? (
+            <section className="panel p-5">
+              <EmptyState>Ainda não há treinos registrados.</EmptyState>
+            </section>
+          ) : (
+          <>
           <section className="panel p-5">
             <div className="mb-4">
               <h2 className="m-0 text-lg font-semibold">Uso por hora</h2>
-              <p className="mb-0 mt-1 text-xs text-muted">Horário UTC · sessões iniciadas</p>
+              <p className="mb-0 mt-1 text-xs text-muted">
+                Horário local ({summaryQuery.data.timeZone ?? 'America/Fortaleza'}) · sessões iniciadas
+              </p>
             </div>
             <Suspense fallback={<div className="h-72 animate-pulse rounded-md bg-surface-raised" />}>
               <UsageChart rows={summaryQuery.data.hourlyUsage} />
@@ -92,6 +124,8 @@ export function DashboardPage() {
             <RankedList title="Equipamentos menos utilizados" rows={[...summaryQuery.data.rankings.equipment].reverse().slice(0, 5)} />
             <RankedList title="Uso por área" rows={summaryQuery.data.rankings.areas} />
           </div>
+          </>
+          )}
         </div>
       )}
     </>

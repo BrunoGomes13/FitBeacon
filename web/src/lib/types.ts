@@ -26,6 +26,7 @@ export type Area = {
   name: string;
   description: string;
   isActive: boolean;
+  isDemo?: boolean;
 };
 
 export type Exercise = {
@@ -69,6 +70,7 @@ export type Equipment = {
   exerciseIds: (Exercise | string)[];
   media: Media;
   isActive: boolean;
+  isDemo?: boolean;
 };
 
 export type UsageRow = {
@@ -84,6 +86,12 @@ export type HourRow = {
   totalDurationSec: number;
 };
 
+export type DayRow = {
+  _id: string;
+  sessions: number;
+  totalDurationSec: number;
+};
+
 export type HeatmapRow = {
   areaId: string;
   areaName: string;
@@ -94,8 +102,11 @@ export type HeatmapRow = {
 
 export type ReportSummary = {
   period: { from: string; to: string };
+  timeZone?: string;
+  openingHours?: { open: number; close: number };
   totals: {
     sessions: number;
+    sessionsToday?: number;
     totalDurationSec: number;
     averageDurationSec: number;
     activeStudents: number;
@@ -103,6 +114,7 @@ export type ReportSummary = {
   };
   rankings: { equipment: UsageRow[]; areas: UsageRow[] };
   hourlyUsage: HourRow[];
+  dailyUsage?: DayRow[];
   idleEquipment: { thresholdDays: number; equipment: { id: string; name: string; areaId: string }[] };
 };
 
@@ -111,4 +123,13 @@ export type ReportFilters = {
   to: string;
   areaId?: string;
   equipmentId?: string;
+  includeDemo?: boolean;
+  origin?: 'beacon' | 'manual';
+};
+
+export type GymSettings = {
+  name: string;
+  timeZone: string;
+  openingHour: number;
+  closingHour: number;
 };

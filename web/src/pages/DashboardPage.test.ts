@@ -6,6 +6,7 @@ const summary: ReportSummary = {
   period: { from: '', to: '' },
   totals: {
     sessions: 1234,
+    sessionsToday: 7,
     totalDurationSec: 3600,
     averageDurationSec: 300,
     activeStudents: 18,
@@ -26,6 +27,6 @@ describe('dashboardKpis', () => {
   it('formata contagem, tempo médio e taxa como pt-BR', () => {
     const cards = dashboardKpis(summary);
 
-    expect(cards.map((card) => card.value)).toEqual(['1.234', '18', '30 min', '12,5%']);
+    expect(cards.map((card) => card.value)).toEqual(['7', '18', '30 min', '12,5%']);
   });
 });

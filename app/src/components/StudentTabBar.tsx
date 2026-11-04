@@ -23,10 +23,15 @@ export function StudentTabBar() {
         backgroundColor: theme.colors.surface,
         borderColor: theme.colors.border,
         borderTopWidth: theme.sizes.border,
+        elevation: theme.mode === 'light' ? 8 : 0,
         flexDirection: 'row',
         justifyContent: 'space-around',
         paddingBottom: Math.max(theme.spacing.sm, insets.bottom),
         paddingTop: theme.spacing.xs,
+        shadowColor: theme.mode === 'light' ? '#17324D' : '#000000',
+        shadowOffset: { width: 0, height: theme.mode === 'light' ? -3 : 0 },
+        shadowOpacity: theme.mode === 'light' ? 0.08 : 0,
+        shadowRadius: theme.mode === 'light' ? 10 : 0,
       }}
     >
       {tabs.map((tab) => {

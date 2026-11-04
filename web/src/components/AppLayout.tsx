@@ -6,20 +6,22 @@ import {
   LogOut,
   Menu,
   Map,
-  Moon,
-  Sun,
   X,
   UsersRound,
+  MapPinned,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { DeleteQueueProvider } from './DeleteQueueProvider';
 import { BrandLockup } from './Brand';
+import { useAppTheme } from '../design/ThemeProvider';
+import type { ThemePreference } from '../design/theme';
 
 const navItems = [
   { to: '/', label: 'Visão geral', icon: LayoutDashboard, end: true },
   { to: '/heatmap', label: 'Mapa de calor', icon: Map, end: false },
+  { to: '/gym-map', label: 'Mapa da academia', icon: MapPinned, end: false },
   { to: '/equipment', label: 'Equipamentos', icon: Dumbbell, end: false },
   { to: '/areas', label: 'Áreas', icon: UsersRound, end: false },
   { to: '/exercises', label: 'Exercícios', icon: Activity, end: false },
@@ -66,21 +68,21 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
 export function AppLayout() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
+  const { preference, setPreference } = useAppTheme();
   const [logoutError, setLogoutError] = useState<string | null>(null);
 
-  const setThemeMode = (next: 'system' | 'light' | 'dark'): void => {
-    setTheme(next);
-    const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-    const active = next === 'system' ? (prefersLight ? 'light' : 'dark') : next;
-    document.documentElement.dataset.theme = active;
-    document.documentElement.dataset.themeMode = next === 'system' ? 'system' : 'explicit';
-  };
-
-  const toggleTheme = (): void => {
-    const active = document.documentElement.dataset.theme ?? 'dark';
-    setThemeMode(active === 'dark' ? 'light' : 'dark');
-  };
+  const themePicker = (className = '') => (
+    <select
+      aria-label="Tema"
+      className={`theme-select ${className}`}
+      onChange={(event) => setPreference(event.target.value as ThemePreference)}
+      value={preference}
+    >
+      <option value="system">Sistema</option>
+      <option value="light">Claro</option>
+      <option value="dark">Escuro</option>
+    </select>
+  );
 
   const logout = async (): Promise<void> => {
     setLogoutError(null);
@@ -101,10 +103,7 @@ export function AppLayout() {
         <Navigation />
         <div className="mt-auto grid gap-3 border-t border-border pt-4">
           <span className="sidebar-footer-copy truncate text-xs text-muted">{user?.name}</span>
-          <button aria-label="Alternar tema claro/escuro" className="btn btn-secondary w-full" onClick={toggleTheme} type="button">
-            {theme === 'light' ? <Sun aria-hidden="true" size={16} /> : <Moon aria-hidden="true" size={16} />}
-            <span className="sidebar-label">Alternar tema</span>
-          </button>
+          {themePicker()}
           <button className="btn btn-logout w-full" onClick={() => void logout()} type="button">
             <LogOut aria-hidden="true" size={16} /><span className="sidebar-label">Sair</span>
           </button>
@@ -116,9 +115,7 @@ export function AppLayout() {
           <BrandLockup className="brand-lockup-mobile sm:hidden" />
           <span className="hidden text-sm text-muted sm:inline">{user?.name} · Administrador</span>
           <div className="ml-auto flex items-center gap-2 sm:ml-0">
-            <button aria-label="Alternar tema claro/escuro" className="btn btn-ghost min-h-10 px-3" onClick={toggleTheme} type="button">
-              <Moon aria-hidden="true" size={17} />
-            </button>
+            {themePicker('theme-select-compact')}
             <button aria-label="Sair" className="btn btn-ghost min-h-10 px-3 sm:hidden" onClick={() => void logout()} type="button"><LogOut aria-hidden="true" size={17} /></button>
           </div>
         </header>
@@ -132,19 +129,4 @@ export function AppLayout() {
       <Navigation mobile />
     </div>
   );
-}
-
-export function AppTheme() {
-  useEffect(() => {
-    const query = window.matchMedia('(prefers-color-scheme: light)');
-    document.documentElement.dataset.theme = query.matches ? 'light' : 'dark';
-    const update = (event: MediaQueryListEvent): void => {
-      if (document.documentElement.dataset.themeMode !== 'explicit') {
-        document.documentElement.dataset.theme = event.matches ? 'light' : 'dark';
-      }
-    };
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
-  return null;
 }

@@ -136,6 +136,7 @@ export async function fetchAllTrainingSessions(): Promise<
 
 export async function recordTrainingSession(input: {
   clientSessionId: string;
+  origin?: 'beacon' | 'manual';
   equipmentId: string;
   equipmentName?: string;
   areaId: string;

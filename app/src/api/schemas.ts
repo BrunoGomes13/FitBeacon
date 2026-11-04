@@ -106,6 +106,7 @@ export const sessionSetSchema = z.object({
 export const trainingSessionSchema = z.object({
   _id: z.string(),
   clientSessionId: z.string(),
+  origin: z.enum(['beacon', 'manual']).default('beacon'),
   userId: z.string(),
   equipmentId: z.union([
     z.string(),

@@ -48,7 +48,7 @@ test('dark palette matches the product design tokens', () => {
   assert.equal(themes.dark.colors.background, '#040B14');
   assert.equal(themes.dark.colors.surface, '#071B30');
   assert.equal(themes.dark.colors.elevated, '#0C2744');
-  assert.equal(themes.dark.colors.border, '#1E3F63');
+  assert.equal(themes.dark.colors.border, '#64798E');
   assert.equal(themes.dark.colors.text, '#FFFFFF');
   assert.equal(themes.dark.colors.secondary, '#8FA3BA');
   assert.equal(themes.dark.colors.primary, '#00B6F7');

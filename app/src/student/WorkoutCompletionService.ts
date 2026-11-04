@@ -12,6 +12,8 @@ const draftSchema = z.object({
   ownerId: z.string().min(1),
   clientSessionId: z.string().min(1),
   equipment: equipmentSchema,
+  origin: z.enum(['beacon', 'manual']).default('beacon'),
+  exerciseId: z.string().optional(),
   startedAt: z.iso.datetime(),
   elapsedSeconds: z.number().int().nonnegative(),
   exerciseIndex: z.number().int().nonnegative().default(0),
@@ -29,6 +31,8 @@ export type WorkoutDraftInput = {
   ownerId: string;
   clientSessionId: string;
   equipment: Equipment;
+  origin?: 'beacon' | 'manual';
+  exerciseId?: string;
   startedAt: string;
   elapsedSeconds: number;
   exerciseIndex?: number;
@@ -186,8 +190,10 @@ export class WorkoutCompletionService {
     const startedAtMs = new Date(draft.startedAt).getTime();
     const durationSec = Math.max(
       1,
-      Math.floor(draft.elapsedSeconds),
-      Math.floor((endedAt - startedAtMs) / 1_000),
+      Math.min(
+        Math.floor(draft.elapsedSeconds),
+        Math.floor((endedAt - startedAtMs) / 1_000),
+      ),
     );
     if (!consentTracking) {
       await this.drafts.remove(draft.ownerId);
@@ -218,6 +224,7 @@ export class WorkoutCompletionService {
 
     const payload = completedSessionSchema.parse({
       clientSessionId: draft.clientSessionId,
+      origin: draft.origin ?? 'beacon',
       equipmentId: draft.equipment._id,
       equipmentName: draft.equipment.name,
       areaId: draft.equipment.areaId._id,
