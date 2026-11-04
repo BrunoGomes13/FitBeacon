@@ -1,113 +1,78 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useMutation } from '@tanstack/react-query';
-import {
-  Button,
-  BrandLockup,
-  Card,
-  Chip,
-  ErrorState,
-  Toast,
-} from '../src/components';
+import { useQuery } from '@tanstack/react-query';
+import { Camera, ChevronRight, Settings2, UserRound } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import { Directory, File, Paths } from 'expo-file-system';
+import { Card, ErrorState, Skeleton } from '../src/components';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
-import { SessionOutboxPanel } from '../src/student/SessionOutboxPanel';
-import { fetchCurrentUser, logout, updateTrackingConsent } from '../src/api/services';
-import { useAppStore, type ThemePreference } from '../src/state/store';
+import { fetchCurrentUser } from '../src/api/services';
+import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
-import { useQuery } from '@tanstack/react-query';
+import { getProfileSectionRoute, getSettingsRoute, profileSections } from '../src/student/profilePresentation';
 
-const themeChoices: ReadonlyArray<{ label: string; value: ThemePreference }> = [
-  { label: 'Sistema', value: 'system' },
-  { label: 'Claro', value: 'light' },
-  { label: 'Escuro', value: 'dark' },
-];
+function initials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toLocaleUpperCase('pt-BR'))
+    .join('');
+}
 
 export default function ProfileScreen() {
   const theme = useTheme();
   const router = useRouter();
   const user = useAppStore((state) => state.user);
+  const profilePhotoUri = useAppStore((state) => state.profilePhotoUri);
+  const setProfilePhotoUri = useAppStore((state) => state.setProfilePhotoUri);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const profileQuery = useQuery({
     queryKey: ['me'],
     queryFn: fetchCurrentUser,
     enabled: Boolean(user),
   });
   const profile = profileQuery.data ?? user;
-  const accessToken = useAppStore((state) => state.accessToken);
-  const refreshToken = useAppStore((state) => state.refreshToken);
-  const consent = useAppStore((state) => state.trackingConsent);
-  const themePreference = useAppStore((state) => state.themePreference);
-  const developerMode = useAppStore((state) => state.developerMode);
-  const useMockBeacons = useAppStore((state) => state.useMockBeacons);
-  const setTrackingConsent = useAppStore((state) => state.setTrackingConsent);
-  const setThemePreference = useAppStore((state) => state.setThemePreference);
-  const setDeveloperMode = useAppStore((state) => state.setDeveloperMode);
-  const setUseMockBeacons = useAppStore((state) => state.setUseMockBeacons);
-  const clearSession = useAppStore((state) => state.clearSession);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const consentMutation = useMutation({
-    mutationFn: updateTrackingConsent,
-    onSuccess: (updatedUser) => {
-      setTrackingConsent(updatedUser.consentTracking, updatedUser);
-      setSuccessMessage(
-        updatedUser.consentTracking
-          ? 'Consentimento ativado. A detecção pode iniciar.'
-          : 'Consentimento revogado. A detecção foi pausada.',
-      );
-    },
-    onError: (error) => {
-      setLogoutError(
-        error instanceof Error
-          ? error.message
-          : 'Não foi possível atualizar o consentimento.',
-      );
-    },
-  });
 
-  const toggleConsent = (): void => {
-    setLogoutError(null);
-    consentMutation.mutate(!consent);
-  };
-
-  const signOut = async (): Promise<void> => {
-    setLogoutError(null);
-
+  const choosePhoto = async (): Promise<void> => {
+    setPhotoError(null);
     try {
-      await logout(refreshToken);
-      clearSession();
-      router.replace('/login');
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setPhotoError('Permita o acesso às fotos nas configurações do aparelho para escolher uma imagem.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (!asset) return;
+      const directory = new Directory(Paths.document, 'fitbeacon-private');
+      directory.create({ idempotent: true, intermediates: true });
+      const extension = asset.mimeType?.split('/')[1]?.replace(/[^a-z0-9]/gi, '') || 'jpg';
+      const destination = new File(directory, `profile-${Date.now()}.${extension}`);
+      await new File(asset.uri).copy(destination);
+      setProfilePhotoUri(destination.uri);
     } catch (error) {
-      setLogoutError(
-        error instanceof Error
-          ? error.message
-          : 'Não foi possível encerrar sua sessão. Tente novamente.',
-      );
+      setPhotoError(error instanceof Error ? error.message : 'Não foi possível salvar a foto do perfil.');
     }
   };
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
-        <BrandLockup variant="settings" />
-        <ScreenHeader
-          eyebrow="FITBEACON · CONTA"
-          subtitle="Privacidade, aparência e preferências."
-          title="Perfil e configurações"
-        />
-        {logoutError ? (
-          <Card>
-            <ErrorState
-              accessibilityLabel="Falha ao atualizar configurações"
-              description={logoutError}
-              onRetry={() => setLogoutError(null)}
-              retryLabel="Entendi"
-              title="Não foi possível concluir"
-            />
-          </Card>
-        ) : null}
+        <ScreenHeader eyebrow="FITBEACON · CONTA" subtitle="Seus dados e preferências." title="Perfil" />
+        {profileQuery.isLoading ? <Skeleton lines={3} /> : null}
         {profileQuery.isError ? (
           <Card>
             <ErrorState
@@ -120,258 +85,84 @@ export default function ProfileScreen() {
           </Card>
         ) : null}
         <Card>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontFamily: theme.typography.fontFamily.semiBold,
-              fontSize: theme.typography.fontSize.lg,
-              lineHeight: theme.typography.lineHeight.lg,
-            }}
-          >
-            Seus dados
-          </Text>
-          <Text
-            style={{
-              color: theme.colors.primary,
-              fontFamily: theme.typography.fontFamily.semiBold,
-              fontSize: theme.typography.fontSize.md,
-              lineHeight: theme.typography.lineHeight.md,
-            }}
-          >
-            {profile?.name ?? 'Aluno FitBeacon'}
-          </Text>
-          <Text
-            style={{
-              color: theme.colors.secondary,
-              fontFamily: theme.typography.fontFamily.regular,
-              fontSize: theme.typography.fontSize.sm,
-              lineHeight: theme.typography.lineHeight.md,
-            }}
-          >
-            {profile?.email ?? 'Conta local'}
-          </Text>
-          {profile?.cpfMasked ? (
-            <Text
-              accessibilityLabel={`CPF ${profile.cpfMasked}`}
-              style={{
-                color: theme.colors.secondary,
-                fontFamily: theme.typography.fontFamily.regular,
-                fontSize: theme.typography.fontSize.sm,
-                lineHeight: theme.typography.lineHeight.md,
-              }}
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.md }}>
+            <Pressable
+              accessibilityLabel="Escolher foto de perfil"
+              accessibilityRole="button"
+              onPress={() => void choosePhoto()}
+              style={{ alignItems: 'center', backgroundColor: theme.colors.primaryStart, borderRadius: theme.radius.pill, height: 72, justifyContent: 'center', overflow: 'hidden', width: 72 }}
             >
-              CPF {profile.cpfMasked}
+              {profilePhotoUri ? (
+                <Image accessibilityLabel="Foto do perfil" source={{ uri: profilePhotoUri }} style={{ height: 72, width: 72 }} />
+              ) : (
+                <LinearGradient
+                  colors={[theme.colors.primaryStart, theme.colors.primaryEnd]}
+                  style={{ alignItems: 'center', height: 72, justifyContent: 'center', width: 72 }}
+                >
+                  <Text style={{ color: theme.colors.onPrimary, fontFamily: theme.typography.fontFamily.bold, fontSize: theme.typography.fontSize.xl }}>
+                    {initials(profile?.name ?? 'Aluno')}
+                  </Text>
+                </LinearGradient>
+              )}
+              <View style={{ alignItems: 'center', backgroundColor: theme.colors.elevated, borderRadius: theme.radius.pill, bottom: 0, height: 24, justifyContent: 'center', position: 'absolute', right: 0, width: 24 }}>
+                <Camera color={theme.colors.primary} size={14} />
+              </View>
+            </Pressable>
+            <View style={{ flex: 1, gap: theme.spacing.xs }}>
+              <Text style={{ color: theme.colors.text, fontFamily: theme.typography.fontFamily.semiBold, fontSize: theme.typography.fontSize.lg }}>
+                {profile?.name ?? 'Aluno'}
+              </Text>
+              <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.sm }}>Aluno</Text>
+            </View>
+          </View>
+          {photoError ? (
+            <Text accessibilityRole="alert" style={{ color: theme.colors.error, fontSize: theme.typography.fontSize.xs }}>
+              {photoError}
             </Text>
           ) : null}
         </Card>
         <Card>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontFamily: theme.typography.fontFamily.semiBold,
-              fontSize: theme.typography.fontSize.lg,
-              lineHeight: theme.typography.lineHeight.lg,
-            }}
-          >
-            Aparência
-          </Text>
-          <Text
-            style={{
-              color: theme.colors.secondary,
-              fontFamily: theme.typography.fontFamily.regular,
-              fontSize: theme.typography.fontSize.sm,
-              lineHeight: theme.typography.lineHeight.md,
-            }}
-          >
-            Escolha um tema ou acompanhe a configuração do aparelho.
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
-            {themeChoices.map((choice) => (
-              <Chip
-                accessibilityLabel={`Usar tema ${choice.label.toLowerCase()}`}
-                key={choice.value}
-                label={choice.label}
-                onPress={() => setThemePreference(choice.value)}
-                selected={themePreference === choice.value}
-              />
-            ))}
-          </View>
-        </Card>
-        <Card>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontFamily: theme.typography.fontFamily.semiBold,
-              fontSize: theme.typography.fontSize.lg,
-              lineHeight: theme.typography.lineHeight.lg,
-            }}
-          >
-            Privacidade e consentimento
-          </Text>
-          <Text
-            style={{
-              color: theme.colors.secondary,
-              fontFamily: theme.typography.fontFamily.regular,
-              fontSize: theme.typography.fontSize.sm,
-              lineHeight: theme.typography.lineHeight.md,
-            }}
-          >
-            {consent
-              ? 'O app pode detectar aparelhos próximos e registrar suas sessões.'
-              : 'A coleta está desativada. Sem consentimento, não iniciamos detecção nem registramos sessões.'}
-          </Text>
-          <Button
-            accessibilityLabel={
-              consent ? 'Revogar consentimento de atividade' : 'Ativar consentimento de atividade'
-            }
-            label={consent ? 'Revogar consentimento' : 'Ativar consentimento'}
-            loading={consentMutation.isPending}
-            onPress={toggleConsent}
-            variant={consent ? 'secondary' : 'primary'}
-          />
-        </Card>
-        <SessionOutboxPanel consent={consent} ownerId={user?.id} />
-        <Card>
-          <Text
-            style={{
-              color: theme.colors.text,
-              fontFamily: theme.typography.fontFamily.semiBold,
-              fontSize: theme.typography.fontSize.lg,
-              lineHeight: theme.typography.lineHeight.lg,
-            }}
-          >
-            Desenvolvimento
-          </Text>
-          <Pressable
-            accessibilityLabel="Ativar modo desenvolvedor"
-            accessibilityRole="switch"
-            accessibilityState={{ checked: developerMode }}
-            onPress={() => setDeveloperMode(!developerMode)}
-            style={{
-              alignItems: 'center',
-              flexDirection: 'row',
-              gap: theme.spacing.md,
-              minHeight: theme.sizes.controlHeight,
-            }}
-          >
-            <View
-              style={{
-                backgroundColor: developerMode ? theme.colors.primary : theme.colors.elevated,
-                borderColor: developerMode ? theme.colors.primary : theme.colors.border,
-                borderRadius: theme.radius.pill,
-                borderWidth: theme.sizes.border,
-                height: theme.spacing['2xl'],
-                justifyContent: 'center',
-                paddingHorizontal: theme.spacing.xs,
-                width: theme.spacing['5xl'],
-              }}
-            >
-              <View
-                style={{
-                  alignSelf: developerMode ? 'flex-end' : 'flex-start',
-                  backgroundColor: developerMode ? theme.colors.onPrimary : theme.colors.text,
-                  borderRadius: theme.radius.pill,
-                  height: theme.spacing.lg,
-                  width: theme.spacing.lg,
-                }}
-              />
-            </View>
-            <Text
-              style={{
-                color: theme.colors.text,
-                flex: 1,
-                fontFamily: theme.typography.fontFamily.medium,
-                fontSize: theme.typography.fontSize.sm,
-                lineHeight: theme.typography.lineHeight.md,
-              }}
-            >
-              Modo desenvolvedor {developerMode ? 'ativado' : 'desativado'}
-            </Text>
-          </Pressable>
-          {developerMode ? (
-            <>
+          {profileSections.map((section, index) => {
+            const route = getProfileSectionRoute(section.id);
+            return (
               <Pressable
-                accessibilityLabel="Usar simulação Mock"
-                accessibilityRole="switch"
-                accessibilityState={{ checked: useMockBeacons }}
-                onPress={() => setUseMockBeacons(!useMockBeacons)}
+                accessibilityLabel={`${section.label}${section.available ? '' : ', em breve'}`}
+                accessibilityRole={section.available ? 'button' : undefined}
+                accessibilityState={{ disabled: !section.available }}
+                disabled={!section.available}
+                key={section.id}
+                onPress={() => route && router.push(route)}
                 style={{
                   alignItems: 'center',
+                  borderBottomColor: theme.colors.border,
+                  borderBottomWidth: index === profileSections.length - 1 ? 0 : theme.sizes.border,
                   flexDirection: 'row',
                   gap: theme.spacing.md,
                   minHeight: theme.sizes.controlHeight,
                 }}
               >
-                <View
-                  style={{
-                    backgroundColor: useMockBeacons
-                      ? theme.colors.primary
-                      : theme.colors.elevated,
-                    borderColor: useMockBeacons
-                      ? theme.colors.primary
-                      : theme.colors.border,
-                    borderRadius: theme.radius.pill,
-                    borderWidth: theme.sizes.border,
-                    height: theme.spacing['2xl'],
-                    justifyContent: 'center',
-                    paddingHorizontal: theme.spacing.xs,
-                    width: theme.spacing['5xl'],
-                  }}
-                >
-                  <View
-                    style={{
-                      alignSelf: useMockBeacons ? 'flex-end' : 'flex-start',
-                      backgroundColor: useMockBeacons
-                        ? theme.colors.onPrimary
-                        : theme.colors.text,
-                      borderRadius: theme.radius.pill,
-                      height: theme.spacing.lg,
-                      width: theme.spacing.lg,
-                    }}
-                  />
-                </View>
-                <Text
-                  style={{
-                    color: theme.colors.text,
-                    flex: 1,
-                    fontFamily: theme.typography.fontFamily.medium,
-                    fontSize: theme.typography.fontSize.sm,
-                    lineHeight: theme.typography.lineHeight.md,
-                  }}
-                >
-                  Usar Mock para simular aparelhos
+                <UserRound color={section.available ? theme.colors.primary : theme.colors.secondary} size={18} />
+                <Text style={{ color: section.available ? theme.colors.text : theme.colors.secondary, flex: 1, fontSize: theme.typography.fontSize.sm }}>
+                  {section.label}
                 </Text>
+                {section.available ? (
+                  <ChevronRight color={theme.colors.secondary} size={18} />
+                ) : (
+                  <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>Em breve</Text>
+                )}
               </Pressable>
-              <Button
-                accessibilityLabel="Abrir diagnóstico BLE"
-                label="Abrir diagnóstico BLE"
-                onPress={() => router.push('/diagnostics')}
-                variant="secondary"
-              />
-            </>
-          ) : null}
+            );
+          })}
         </Card>
-        <Toast
-          accessibilityLabel="Configuração atualizada"
-          message={successMessage ?? ''}
-          tone="success"
-          visible={successMessage !== null}
-        />
-        {developerMode ? (
-          <Button
-            accessibilityLabel="Abrir galeria de componentes"
-            label="Galeria de componentes"
-            onPress={() => router.push('/gallery')}
-            variant="ghost"
-          />
-        ) : null}
-        <Button
-          accessibilityLabel="Sair da conta"
-          label="Sair da conta"
-          onPress={() => void signOut()}
-          variant="secondary"
-          disabled={!accessToken}
-        />
+        <Pressable
+          accessibilityLabel="Abrir configurações"
+          accessibilityRole="button"
+          onPress={() => router.push(getSettingsRoute())}
+          style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.sm, justifyContent: 'center', minHeight: theme.sizes.controlHeight }}
+        >
+          <Settings2 color={theme.colors.primary} size={18} />
+          <Text style={{ color: theme.colors.primary, fontSize: theme.typography.fontSize.sm }}>Configurações</Text>
+        </Pressable>
       </ScreenContainer>
       <StudentTabBar />
     </View>

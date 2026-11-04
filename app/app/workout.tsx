@@ -38,15 +38,23 @@ export default function WorkoutScreen() {
   const router = useRouter();
   const workout = useAppStore((state) => state.activeWorkout);
   const addWorkoutSet = useAppStore((state) => state.addWorkoutSet);
+  const setWorkoutProgress = useAppStore((state) => state.setWorkoutProgress);
   const beacon = useStudentBeacon();
   const [paused, setPaused] = useState(false);
-  const [elapsedSeconds, setElapsedSeconds] = useState(() =>
-    workout
-      ? Math.max(0, Math.floor((Date.now() - new Date(workout.startedAt).getTime()) / 1000))
-      : 0,
-  );
+  const [elapsedSeconds, setElapsedSeconds] = useState(workout?.elapsedSeconds ?? 0);
   const [restSeconds, setRestSeconds] = useState<number | null>(null);
-  const exercise = workout?.equipment.exerciseIds[0];
+  const [localSaveFailed, setLocalSaveFailed] = useState(false);
+  const [finishSaveFailed, setFinishSaveFailed] = useState(false);
+  const exercise = workout?.equipment.exerciseIds[workout.exerciseIndex];
+  const goBack = (): void => {
+    if (!workout) {
+      router.back();
+      return;
+    }
+    void beacon.checkpointWorkout()
+      .catch(() => undefined)
+      .finally(() => router.back());
+  };
   const currentSets = useMemo(
     () => workout?.sets.filter((set) => set.exerciseId === exercise?._id) ?? [],
     [exercise?._id, workout?.sets],
@@ -66,9 +74,15 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     if (paused) return;
-    const timer = setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1_000);
+    const timer = setInterval(() => {
+      setElapsedSeconds((seconds) => {
+        const next = seconds + 1;
+        setWorkoutProgress({ elapsedSeconds: next });
+        return next;
+      });
+    }, 1_000);
     return () => clearInterval(timer);
-  }, [paused]);
+  }, [paused, setWorkoutProgress]);
 
   useEffect(() => {
     if (restSeconds === null || restSeconds <= 0) return;
@@ -79,7 +93,7 @@ export default function WorkoutScreen() {
     return () => clearTimeout(timer);
   }, [restSeconds]);
 
-  const onSubmitSet = form.handleSubmit((values) => {
+  const onSubmitSet = form.handleSubmit(async (values) => {
     if (!workout || !exercise || currentSets.length >= recommendedSets) return;
     addWorkoutSet({
       exerciseId: exercise._id,
@@ -87,10 +101,41 @@ export default function WorkoutScreen() {
       load: values.load,
       reps: values.reps,
     });
+    try {
+      await beacon.checkpointWorkout();
+      setLocalSaveFailed(false);
+    } catch {
+      setLocalSaveFailed(true);
+      return;
+    }
     setRestSeconds(90);
     form.setValue('load', values.load);
     form.setValue('reps', recommendedReps);
   });
+
+  const finishWorkout = async (): Promise<void> => {
+    try {
+      await beacon.finishSession();
+      setLocalSaveFailed(false);
+      setFinishSaveFailed(false);
+    } catch {
+      setLocalSaveFailed(true);
+      setFinishSaveFailed(true);
+    }
+  };
+
+  const isLastExercise =
+    !!workout && workout.exerciseIndex >= workout.equipment.exerciseIds.length - 1;
+  const allExercisesComplete =
+    !!workout &&
+    workout.equipment.exerciseIds.every((item) => {
+      const count = workout.sets.filter((set) => set.exerciseId === item._id).length;
+      return count >= (item.recommendedSets ?? 3);
+    });
+  const retryConclusion =
+    finishSaveFailed || beacon.sessionFeedback?.retryKind === 'conclusion';
+  const showLocalRetry =
+    localSaveFailed || beacon.sessionFeedback?.retryKind !== undefined;
 
   if (!workout) {
     return (
@@ -113,7 +158,7 @@ export default function WorkoutScreen() {
           <Pressable
             accessibilityLabel="Voltar ao equipamento"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={goBack}
             style={{
               alignItems: 'center',
               flexDirection: 'row',
@@ -127,7 +172,7 @@ export default function WorkoutScreen() {
           <ErrorState
             accessibilityLabel="Exercício indisponível"
             description="Este equipamento ainda não possui exercícios vinculados."
-            onRetry={() => router.back()}
+            onRetry={goBack}
             retryLabel="Voltar ao equipamento"
             title="Treino indisponível"
           />
@@ -144,7 +189,7 @@ export default function WorkoutScreen() {
         <Pressable
           accessibilityLabel="Voltar ao equipamento"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={goBack}
           style={{
             alignItems: 'center',
             flexDirection: 'row',
@@ -408,13 +453,39 @@ export default function WorkoutScreen() {
               label="Finalizar série"
               onPress={() => void onSubmitSet()}
             />
+          ) : !isLastExercise ? (
+            <Button
+              accessibilityLabel="Próximo exercício"
+              label="Próximo exercício"
+              onPress={() => {
+                setWorkoutProgress({ exerciseIndex: workout.exerciseIndex + 1 });
+                setRestSeconds(null);
+              }}
+              variant="secondary"
+            />
           ) : (
             <Button
               accessibilityLabel="Finalizar treino e voltar ao início"
-              label="Finalizar treino"
-              onPress={beacon.finishSession}
+              label={allExercisesComplete ? 'Finalizar treino' : 'Concluir treino'}
+              onPress={() => void finishWorkout()}
             />
           )}
+          {showLocalRetry ? (
+            <Button
+              accessibilityLabel="Tentar salvar o treino novamente"
+              label="Tentar de novo"
+              onPress={() => {
+                if (retryConclusion) {
+                  void beacon.retryFinish().catch(() => undefined);
+                } else {
+                  void beacon.checkpointWorkout()
+                    .then(() => setLocalSaveFailed(false))
+                    .catch(() => setLocalSaveFailed(true));
+                }
+              }}
+              variant="secondary"
+            />
+          ) : null}
         </Card>
       </ScreenContainer>
     </View>

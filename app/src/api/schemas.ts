@@ -50,6 +50,13 @@ export const equipmentSchema = z.object({
   gymId: z.string(),
   areaId: areaSchema,
   name: z.string(),
+  position: z
+    .object({
+      x: z.number().min(0).max(100),
+      y: z.number().min(0).max(100),
+    })
+    .nullable()
+    .optional(),
   beacon: z.object({
     uuid: z.string().uuid(),
     major: z.number().int(),
@@ -90,6 +97,7 @@ export const sessionSetSchema = z.object({
       muscleGroup: z.string().optional(),
     }),
   ]),
+  exerciseName: z.string().optional(),
   setNumber: z.number().int().positive(),
   load: z.number().nonnegative(),
   reps: z.number().int().positive(),
@@ -112,7 +120,9 @@ export const trainingSessionSchema = z.object({
         .nullable(),
     }),
   ]),
+  equipmentName: z.string().optional(),
   areaId: z.union([z.string(), areaSchema]).nullable(),
+  areaName: z.string().optional(),
   startedAt: z.string().datetime({ offset: true }),
   endedAt: z.string().datetime({ offset: true }),
   durationSec: z.number().nonnegative(),

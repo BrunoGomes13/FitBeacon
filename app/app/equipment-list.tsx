@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Radio } from 'lucide-react-native';
+import { ChevronRight, MapPinned, Radio, Search, Signal } from 'lucide-react-native';
 import {
   Card,
+  Button,
   Chip,
   EmptyState,
   ErrorState,
@@ -13,10 +14,15 @@ import {
 import { StudentTabBar } from '../src/components/StudentTabBar';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
-import { fetchAreas, fetchEquipments } from '../src/api/services';
+import { fetchAreas, fetchGymEquipment } from '../src/api/services';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
 import { getEquipmentRoute } from '../src/student/homePresentation';
+import {
+  filterEquipment,
+  getEquipmentAreaFilter,
+  type EquipmentAreaFilter,
+} from '../src/student/equipmentPresentation';
 
 export default function EquipmentListScreen() {
   const theme = useTheme();
@@ -24,33 +30,37 @@ export default function EquipmentListScreen() {
   const user = useAppStore((state) => state.user);
   const params = useLocalSearchParams<{ areaId?: string }>();
   const routeAreaId = typeof params.areaId === 'string' ? params.areaId : undefined;
-  const [areaSelection, setAreaSelection] = useState<
-    { type: 'route' } | { type: 'all' } | { type: 'area'; id: string }
-  >({ type: 'route' });
-  const selectedAreaId =
-    areaSelection.type === 'route'
-      ? routeAreaId
-      : areaSelection.type === 'area'
-        ? areaSelection.id
-        : undefined;
+  const [search, setSearch] = useState('');
+  const [areaChip, setAreaChip] = useState<EquipmentAreaFilter>('Todos');
+  const [showAllRouteAreas, setShowAllRouteAreas] = useState(false);
+  const selectedAreaId = showAllRouteAreas ? undefined : routeAreaId;
   const areasQuery = useQuery({
     queryKey: ['student', 'areas'],
     queryFn: fetchAreas,
     enabled: Boolean(user),
   });
   const equipmentQuery = useQuery({
-    queryKey: ['student', 'equipment', selectedAreaId],
-    queryFn: () => fetchEquipments(selectedAreaId),
+    queryKey: ['student', 'equipment'],
+    queryFn: fetchGymEquipment,
     enabled: Boolean(user),
   });
   const selectedArea = useMemo(
     () => areasQuery.data?.find((area) => area._id === selectedAreaId),
     [areasQuery.data, selectedAreaId],
   );
+  const selectedChip = routeAreaId && !showAllRouteAreas && areaChip === 'Todos' && selectedArea
+    ? getEquipmentAreaFilter(selectedArea.name)
+    : areaChip;
 
   const openEquipment = (equipment: NonNullable<typeof equipmentQuery.data>[number]) => {
     router.push(getEquipmentRoute(equipment));
   };
+  const filteredEquipment = useMemo(() => {
+    const base = (equipmentQuery.data ?? []).filter(
+      (equipment) => !selectedAreaId || equipment.areaId._id === selectedAreaId,
+    );
+    return filterEquipment(base, areaChip, search);
+  }, [areaChip, equipmentQuery.data, search, selectedAreaId]);
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
@@ -59,6 +69,42 @@ export default function EquipmentListScreen() {
           eyebrow="FITBEACON · ACADEMIA"
           subtitle={selectedArea?.name ?? 'Explore os aparelhos disponíveis na academia.'}
           title="Equipamentos"
+        />
+        <View
+          style={{
+            alignItems: 'center',
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
+            borderRadius: theme.radius.md,
+            borderWidth: theme.sizes.border,
+            flexDirection: 'row',
+            gap: theme.spacing.sm,
+            minHeight: theme.sizes.controlHeight,
+            paddingHorizontal: theme.spacing.md,
+          }}
+        >
+          <Search color={theme.colors.secondary} size={18} />
+          <TextInput
+            accessibilityLabel="Buscar equipamento"
+            onChangeText={setSearch}
+            placeholder="Buscar equipamento..."
+            placeholderTextColor={theme.colors.secondary}
+            style={{
+              color: theme.colors.text,
+              flex: 1,
+              fontFamily: theme.typography.fontFamily.regular,
+              fontSize: theme.typography.fontSize.md,
+              minHeight: theme.sizes.controlHeight,
+            }}
+            value={search}
+          />
+        </View>
+        <Button
+          accessibilityLabel="Abrir mapa da academia"
+          label="Ver mapa da academia"
+          onPress={() => router.push('/gym-map')}
+          variant="secondary"
+          icon={<MapPinned color={theme.colors.primary} size={18} />}
         />
         {areasQuery.isLoading ? <Skeleton lines={2} /> : null}
         {areasQuery.isError ? (
@@ -73,23 +119,31 @@ export default function EquipmentListScreen() {
           </Card>
         ) : null}
         {areasQuery.isSuccess && areasQuery.data.length > 0 ? (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
             <Chip
               accessibilityLabel="Mostrar equipamentos de todas as áreas"
-              label="Todas"
-              onPress={() => setAreaSelection({ type: 'all' })}
-              selected={areaSelection.type === 'all' || !selectedAreaId}
+              label="Todos"
+              onPress={() => {
+                setShowAllRouteAreas(true);
+                setAreaChip('Todos');
+              }}
+              selected={selectedChip === 'Todos'}
             />
-            {areasQuery.data.map((area) => (
+            {(['Musculação', 'Cardio', 'Funcional', 'Livre'] as const).map((label) => (
               <Chip
-                accessibilityLabel={`Filtrar área ${area.name}`}
-                key={area._id}
-                label={area.name}
-                onPress={() => setAreaSelection({ type: 'area', id: area._id })}
-                selected={selectedAreaId === area._id}
+                accessibilityLabel={`Filtrar área ${label}`}
+                key={label}
+                label={label}
+                onPress={() => {
+                  setShowAllRouteAreas(true);
+                  setAreaChip(label);
+                }}
+                selected={selectedChip === label}
               />
             ))}
-          </View>
+            </View>
+          </ScrollView>
         ) : null}
         {equipmentQuery.isLoading ? <Skeleton lines={3} /> : null}
         {equipmentQuery.isError ? (
@@ -103,7 +157,7 @@ export default function EquipmentListScreen() {
             />
           </Card>
         ) : null}
-        {equipmentQuery.isSuccess && equipmentQuery.data.length === 0 ? (
+        {equipmentQuery.isSuccess && filteredEquipment.length === 0 ? (
           <Card>
             <EmptyState
               accessibilityLabel="Nenhum equipamento encontrado"
@@ -117,7 +171,7 @@ export default function EquipmentListScreen() {
           </Card>
         ) : null}
         {equipmentQuery.isSuccess
-          ? equipmentQuery.data.map((equipment) => (
+          ? filteredEquipment.map((equipment) => (
               <Pressable
                 accessibilityLabel={`Abrir ${equipment.name}, área ${equipment.areaId.name}`}
                 accessibilityRole="button"
@@ -135,8 +189,20 @@ export default function EquipmentListScreen() {
                       gap: theme.spacing.md,
                     }}
                   >
-                    <View
-                      style={{
+                    {equipment.media.imageUrl ? (
+                      <Image
+                        accessibilityLabel={`Imagem de ${equipment.name}`}
+                        source={{ uri: equipment.media.imageUrl }}
+                        style={{
+                          backgroundColor: theme.colors.elevated,
+                          borderRadius: theme.radius.md,
+                          height: 56,
+                          width: 56,
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={{
                         alignItems: 'center',
                         backgroundColor: theme.colors.elevated,
                         borderRadius: theme.radius.md,
@@ -147,6 +213,7 @@ export default function EquipmentListScreen() {
                     >
                       <Radio color={theme.colors.primary} size={28} />
                     </View>
+                    )}
                     <View style={{ flex: 1, gap: theme.spacing.xs }}>
                       <Text
                         style={{
@@ -166,11 +233,12 @@ export default function EquipmentListScreen() {
                           lineHeight: theme.typography.lineHeight.md,
                         }}
                       >
-                        {equipment.areaId.name} · Equipamento{' '}
+                        Área: {equipment.areaId.name} · Nº{' '}
                         {String(equipment.beacon.minor).padStart(2, '0')}
                       </Text>
                     </View>
-                    <ChevronRight color={theme.colors.secondary} size={20} />
+                    <Signal color={theme.colors.primary} size={20} />
+                    <ChevronRight color={theme.colors.secondary} size={18} />
                   </View>
                   {equipment.exerciseIds.length ? (
                     <Text

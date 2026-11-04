@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const sessionSetSchema = z.object({
   exerciseId: z.string().min(1),
+  exerciseName: z.string().trim().min(1).max(120).optional(),
   setNumber: z.number().int().positive(),
   load: z.number().nonnegative(),
   reps: z.number().int().positive(),
@@ -10,7 +11,9 @@ const sessionSetSchema = z.object({
 export const completedSessionSchema = z.object({
   clientSessionId: z.string().min(1),
   equipmentId: z.string().min(1),
+  equipmentName: z.string().trim().min(1).max(120).optional(),
   areaId: z.string().min(1),
+  areaName: z.string().trim().min(1).max(100).optional(),
   startedAt: z.iso.datetime(),
   endedAt: z.iso.datetime(),
   sets: z.array(sessionSetSchema),
@@ -30,6 +33,7 @@ const indexSchema = z.object({
     clientSessionId: z.string(),
     failedAt: z.number(),
     reason: z.string(),
+    code: z.union([z.number(), z.string()]).optional(),
   })),
 });
 
@@ -40,6 +44,7 @@ export type SessionOutboxSnapshot = {
   pendingCount: number;
   failures: SessionOutboxFailure[];
   errorMessage: string | null;
+  errorCode: number | string | null;
 };
 export type SessionOutboxStorage = {
   getItem: (name: string) => string | null | Promise<string | null>;
@@ -57,7 +62,12 @@ export type SessionOutboxOptions = {
 };
 
 const emptyIndex = (): QueueIndex => ({ pendingIds: [], failures: [] });
-const emptySnapshot = (): SessionOutboxSnapshot => ({ pendingCount: 0, failures: [], errorMessage: null });
+const emptySnapshot = (): SessionOutboxSnapshot => ({
+  pendingCount: 0,
+  failures: [],
+  errorMessage: null,
+  errorCode: null,
+});
 
 function serialized<T>(schema: z.ZodType<T>, value: string, description: string): T {
   let parsed: unknown;
@@ -77,6 +87,14 @@ function responseStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null || !('status' in error)) return undefined;
   const status = error.status;
   return typeof status === 'number' ? status : undefined;
+}
+
+function responseCode(error: unknown): number | string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  if ('code' in error && (typeof error.code === 'string' || typeof error.code === 'number')) {
+    return error.code;
+  }
+  return responseStatus(error);
 }
 
 function errorMessage(error: unknown): string {
@@ -151,6 +169,10 @@ export class SessionOutbox {
   async initialize(): Promise<void> {
     const index = await this.readIndex();
     this.publish(index);
+  }
+
+  async isPending(clientSessionId: string): Promise<boolean> {
+    return (await this.readIndex()).pendingIds.includes(clientSessionId);
   }
 
   async enqueue(session: CompletedSessionPayload): Promise<string | null> {
@@ -243,6 +265,7 @@ export class SessionOutbox {
             clientSessionId: candidate.payload.clientSessionId,
             failedAt: this.now(),
             reason: errorMessage(error),
+            code: responseCode(error),
           };
           await this.updateIndex(async (current) => ({
             index: {
@@ -262,7 +285,7 @@ export class SessionOutbox {
           this.recordKey(candidate.payload.clientSessionId),
           JSON.stringify({ payload: candidate.payload, attempts, retryAt } satisfies QueueRecord),
         );
-        this.setSyncError(errorMessage(error));
+        this.setSyncError(errorMessage(error), responseCode(error) ?? null);
         this.scheduleRetry(send, retryAt);
         return sent;
       }
@@ -322,16 +345,24 @@ export class SessionOutbox {
       pendingCount: index.pendingIds.length,
       failures: index.failures,
       errorMessage: this.snapshot.errorMessage,
+      errorCode: this.snapshot.errorCode,
     };
     for (const listener of this.listeners) listener();
   }
 
   reportError(error: unknown): void {
-    this.setSyncError(errorMessage(error));
+    this.setSyncError(errorMessage(error), responseCode(error) ?? null);
   }
 
-  private setSyncError(errorMessageValue: string | null): void {
-    this.snapshot = { ...this.snapshot, errorMessage: errorMessageValue };
+  private setSyncError(
+    errorMessageValue: string | null,
+    errorCodeValue: number | string | null = null,
+  ): void {
+    this.snapshot = {
+      ...this.snapshot,
+      errorMessage: errorMessageValue,
+      errorCode: errorCodeValue,
+    };
     for (const listener of this.listeners) listener();
   }
 }

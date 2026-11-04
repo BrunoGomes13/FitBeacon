@@ -37,18 +37,18 @@ const areaFixtures = ['Membros inferiores', 'Membros superiores', 'Cardio', 'Fun
 const gymBeaconUuid = '00000000-0000-4000-8000-000000000001';
 
 const equipmentFixtures = [
-  ['Leg press 45°', 0],
-  ['Cadeira extensora', 0],
-  ['Mesa flexora', 0],
-  ['Supino guiado', 1],
-  ['Puxador frontal', 1],
-  ['Remada sentada', 1],
-  ['Esteira 01', 2],
-  ['Bicicleta vertical', 2],
-  ['Remo ergométrico', 2],
-  ['Estação de cabos', 3],
-  ['Banco regulável', 3],
-  ['Smith machine', 3],
+  ['Leg press 45°', 0, 25, 16],
+  ['Cadeira extensora', 0, 42, 16],
+  ['Mesa flexora', 0, 58, 16],
+  ['Supino guiado', 1, 25, 36],
+  ['Puxador frontal', 1, 42, 36],
+  ['Remada sentada', 1, 58, 36],
+  ['Esteira 01', 2, 80, 36],
+  ['Bicicleta vertical', 2, 80, 50],
+  ['Remo ergométrico', 2, 80, 64],
+  ['Estação de cabos', 3, 30, 73],
+  ['Banco regulável', 3, 48, 73],
+  ['Smith machine', 3, 30, 88],
 ] as const;
 
 function beaconUuid(index: number): string {
@@ -131,7 +131,7 @@ export async function seedData(
     ),
   );
   const equipment = await Promise.all(
-    equipmentFixtures.map(([name, areaIndex], index) => {
+    equipmentFixtures.map(([name, areaIndex, x, y], index) => {
       const equipmentExercises = [
         exercises[index % exercises.length],
         exercises[(index + 1) % exercises.length],
@@ -158,6 +158,7 @@ export async function seedData(
             gymId: gym._id,
             areaId: areas[areaIndex]._id,
             name,
+            position: { x, y },
             adjustments: [
               {
                 name: 'Posição inicial',

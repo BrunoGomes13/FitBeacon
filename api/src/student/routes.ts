@@ -16,6 +16,7 @@ const beaconQuerySchema = z.object({
 
 const setSchema = z.object({
   exerciseId: z.string().regex(/^[a-f\d]{24}$/i),
+  exerciseName: z.string().trim().min(1).max(120).optional(),
   setNumber: z.number().int().min(1).max(50),
   load: z.number().finite().min(0).max(2000),
   reps: z.number().int().min(1).max(1000),
@@ -29,7 +30,9 @@ const sessionSchema = z
   .object({
     clientSessionId: z.uuid(),
     equipmentId: z.string().regex(/^[a-f\d]{24}$/i),
+    equipmentName: z.string().trim().min(1).max(120).optional(),
     areaId: z.string().regex(/^[a-f\d]{24}$/i),
+    areaName: z.string().trim().min(1).max(100).optional(),
     startedAt: sessionDateSchema,
     endedAt: sessionDateSchema,
     sets: z
@@ -51,6 +54,15 @@ const sessionSchema = z
     message: 'A duração da sessão deve ser de pelo menos um segundo.',
     path: ['endedAt'],
   })
+  .refine(
+    (session) =>
+      session.sets.length > 0 ||
+      session.endedAt.getTime() - session.startedAt.getTime() >= 20_000,
+    {
+      message: 'Sessões sem séries precisam durar ao menos 20 segundos.',
+      path: ['endedAt'],
+    },
+  )
   .refine((session) => session.endedAt.getTime() <= Date.now() + 5 * 60 * 1000, {
     message: 'O término da sessão não pode estar no futuro.',
     path: ['endedAt'],
@@ -135,6 +147,7 @@ async function saveSetLogs(sessionId: Types.ObjectId, sets: z.infer<typeof setSc
       await SetLog.create({
         sessionId,
         exerciseId: toObjectId(set.exerciseId),
+        exerciseName: set.exerciseName,
         setNumber: set.setNumber,
         load: set.load,
         reps: set.reps,
@@ -265,7 +278,9 @@ export function createStudentRouter(config: AppConfig): Router {
     for (const item of input.sessions) {
       const canonical = JSON.stringify({
         equipmentId: item.equipmentId,
+        equipmentName: item.equipmentName,
         areaId: item.areaId,
+        areaName: item.areaName,
         startedAt: item.startedAt.toISOString(),
         endedAt: item.endedAt.toISOString(),
         sets: [...item.sets].sort(
@@ -344,6 +359,8 @@ export function createStudentRouter(config: AppConfig): Router {
           existing = await UsageSession.create({
             clientSessionId: item.clientSessionId,
             ...expected,
+            equipmentName: item.equipmentName,
+            areaName: item.areaName,
             durationSec: Math.round(
               (item.endedAt.getTime() - item.startedAt.getTime()) / 1000,
             ),
@@ -451,10 +468,30 @@ export function createStudentRouter(config: AppConfig): Router {
     }
 
     response.json({
-      data: sessions.map((session) => ({
-        ...session,
-        sets: setsBySession.get(session._id.toString()) ?? [],
-      })),
+      data: sessions.map((session) => {
+        const populatedEquipment = typeof session.equipmentId === 'object'
+          ? session.equipmentId as { name?: string } | null
+          : null;
+        const populatedArea = typeof session.areaId === 'object'
+          ? session.areaId as { name?: string } | null
+          : null;
+        const sets = (setsBySession.get(session._id.toString()) ?? []).map((setLog) => {
+          const populatedExercise = typeof setLog.exerciseId === 'object'
+            ? setLog.exerciseId as { name?: string } | null
+            : null;
+          return {
+            ...setLog,
+            exerciseName: setLog.exerciseName ?? populatedExercise?.name,
+          };
+        });
+
+        return {
+          ...session,
+          equipmentName: session.equipmentName ?? populatedEquipment?.name,
+          areaName: session.areaName ?? populatedArea?.name,
+          sets,
+        };
+      }),
       pagination: pagination(page, limit, total),
     });
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   BottomSheet,
@@ -24,6 +24,13 @@ import type {
   MockScenario,
 } from '../src/beacon/types';
 import { useTheme } from '../src/theme/ThemeProvider';
+import { useStudentBeacon } from '../src/student/StudentBeaconRuntime';
+import {
+  getSessionStorageStatus,
+  subscribeSessionStorageStatus,
+  testSessionStorage,
+  type StorageProbeResult,
+} from '../src/api/expoSessionStorage';
 
 type ProviderMode = 'mock' | 'real';
 
@@ -85,6 +92,7 @@ function getDisplayedGymUuid(): string {
 export default function BeaconDiagnosticsScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const runtime = useStudentBeacon();
   const machineRef = useRef(new BeaconStateMachine());
   const providerRef = useRef<BeaconProvider | null>(null);
   const [providerMode, setProviderMode] = useState<ProviderMode>(
@@ -116,6 +124,11 @@ export default function BeaconDiagnosticsScreen() {
     value: string | null;
   }>({ key: '', value: null });
   const [showInfo, setShowInfo] = useState(false);
+  const [storageProbe, setStorageProbe] = useState<{
+    loading: boolean;
+    results: StorageProbeResult[];
+  }>({ loading: false, results: [] });
+  const [storageStatus, setStorageStatus] = useState(getSessionStorageStatus);
   const attemptKey = `${providerMode}:${retryCount}`;
   const attemptKeyRef = useRef(attemptKey);
   const providerState =
@@ -134,6 +147,8 @@ export default function BeaconDiagnosticsScreen() {
     snapshotEntry.key === attemptKey ? snapshotEntry.value : initialSnapshot;
   const toastMessage = toastEntry.key === attemptKey ? toastEntry.value : null;
   const isLoading = attemptedKey !== attemptKey;
+
+  useEffect(() => subscribeSessionStorageStatus(setStorageStatus), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -289,6 +304,41 @@ export default function BeaconDiagnosticsScreen() {
         : 'Aguardando';
   const errorMessage =
     providerState.status === 'error' ? providerState.message : permission.message;
+  const copyConclusion = async (): Promise<void> => {
+    const diagnostic = runtime.lastWorkoutConclusion;
+    if (!diagnostic) return;
+    const text = JSON.stringify(diagnostic, null, 2);
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      setToastEntry({ key: attemptKey, value: 'Última conclusão copiada.' });
+      return;
+    }
+    await Share.share({ message: text, title: 'Última conclusão de treino' });
+    setToastEntry({ key: attemptKey, value: 'Use a opção Copiar para copiar o diagnóstico.' });
+  };
+  const runStorageProbe = async (): Promise<void> => {
+    setStorageProbe({ loading: true, results: [] });
+    try {
+      setStorageProbe({ loading: false, results: await testSessionStorage() });
+    } catch (error) {
+      setStorageProbe({
+        loading: false,
+        results: [
+          {
+            sizeKb: 0,
+            ok: false,
+            destination: storageStatus.destination,
+            error: {
+              stage: 'storage-probe',
+              name: error instanceof Error ? error.name : 'UnknownError',
+              message: error instanceof Error ? error.message : 'Erro desconhecido.',
+            },
+            quarantine: storageStatus.quarantined,
+          },
+        ],
+      });
+    }
+  };
 
   return (
     <ScrollView
@@ -335,6 +385,90 @@ export default function BeaconDiagnosticsScreen() {
         >
           Modo desenvolvedor · UUID da academia: {getDisplayedGymUuid()}
         </Text>
+
+        <Card>
+          <Text
+            style={{
+              color: theme.colors.text,
+              fontFamily: theme.typography.fontFamily.semiBold,
+              fontSize: theme.typography.fontSize.lg,
+            }}
+          >
+            Última conclusão de treino
+          </Text>
+          {runtime.lastWorkoutConclusion ? (
+            <>
+              <Text style={{ color: theme.colors.secondary }}>
+                Resultado: {runtime.lastWorkoutConclusion.result}
+              </Text>
+              <Text style={{ color: theme.colors.secondary }}>
+                Etapa: {runtime.lastWorkoutConclusion.failedStage ?? 'nenhuma'}
+              </Text>
+              <Text style={{ color: theme.colors.secondary }}>
+                Código: {runtime.lastWorkoutConclusion.code ?? '—'}
+              </Text>
+              <Text style={{ color: theme.colors.secondary }}>
+                Motivo: {runtime.lastWorkoutConclusion.reason ?? 'Sem falhas.'}
+              </Text>
+              <Text style={{ color: theme.colors.secondary }}>
+                Exceção: {runtime.lastWorkoutConclusion.errorName ?? '—'}
+              </Text>
+              <Text style={{ color: theme.colors.secondary }}>
+                Mensagem: {runtime.lastWorkoutConclusion.errorMessage ?? '—'}
+              </Text>
+              <Button
+                accessibilityLabel="Copiar diagnóstico da última conclusão"
+                label="Copiar"
+                onPress={() => {
+                  void copyConclusion().catch(() => {
+                    setToastEntry({
+                      key: attemptKey,
+                      value: 'Não foi possível copiar o diagnóstico.',
+                    });
+                  });
+                }}
+                variant="secondary"
+              />
+            </>
+          ) : (
+            <Text style={{ color: theme.colors.secondary }}>
+              Ainda não há conclusão registrada neste aparelho.
+            </Text>
+          )}
+        </Card>
+
+        <Card>
+          <Text style={{ color: theme.colors.text, fontFamily: theme.typography.fontFamily.semiBold }}>
+            Armazenamento local
+          </Text>
+          <Text style={{ color: theme.colors.secondary }}>
+          Destino atual: {storageStatus.destination}
+          </Text>
+          {storageStatus.lastError ? (
+            <Text style={{ color: theme.colors.secondary }}>
+            Última falha: {storageStatus.lastError.stage} ·{' '}
+            {storageStatus.lastError.name}: {storageStatus.lastError.message}
+            </Text>
+          ) : null}
+          {storageStatus.quarantined ? (
+            <Text             style={{ color: theme.colors.warning }}>
+            Arquivo inválido isolado: {storageStatus.quarantined.reason}
+            </Text>
+          ) : null}
+          <Button
+            accessibilityLabel="Testar armazenamento local com arquivos de tamanhos diferentes"
+            label={storageProbe.loading ? 'Testando armazenamento…' : 'Testar armazenamento'}
+            onPress={() => void runStorageProbe()}
+            disabled={storageProbe.loading}
+            variant="secondary"
+          />
+          {storageProbe.results.map((result) => (
+            <Text key={result.sizeKb} style={{ color: result.ok ? theme.colors.success : theme.colors.error }}>
+              {result.sizeKb ? `${result.sizeKb} KB` : 'Armazenamento'}: {result.ok ? '✅' : '❌'}{' '}
+              {result.error ? `${result.error.stage} · ${result.error.name}: ${result.error.message}` : result.destination}
+            </Text>
+          ))}
+        </Card>
 
         <Card>
           <Text

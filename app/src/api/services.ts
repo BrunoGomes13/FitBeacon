@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { apiRequest } from './client';
+import { apiRequest } from './client.ts';
 import {
   authResponseSchema,
   areaListResponseSchema,
@@ -10,7 +10,7 @@ import {
   type AppUser,
   type Equipment,
   type SessionSetInput,
-} from './schemas';
+} from './schemas.ts';
 
 const emptyResponseSchema = z.void();
 const sessionBatchResponseSchema = z.object({
@@ -63,6 +63,13 @@ export async function fetchEquipments(areaId?: string): Promise<
     `/equipment${query}`,
     equipmentListResponseSchema,
   );
+  return response.data;
+}
+
+export async function fetchGymEquipment(): Promise<
+  z.infer<typeof equipmentListResponseSchema>['data']
+> {
+  const response = await apiRequest('/equipment', equipmentListResponseSchema);
   return response.data;
 }
 
@@ -130,10 +137,12 @@ export async function fetchAllTrainingSessions(): Promise<
 export async function recordTrainingSession(input: {
   clientSessionId: string;
   equipmentId: string;
+  equipmentName?: string;
   areaId: string;
+  areaName?: string;
   startedAt: string;
   endedAt: string;
-  sets: SessionSetInput[];
+  sets: (SessionSetInput & { exerciseName?: string })[];
 }): Promise<void> {
   await apiRequest(
     '/sessions/batch',

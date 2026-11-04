@@ -67,11 +67,20 @@ const adjustmentSchema = new Schema(
   { _id: false },
 );
 
+const equipmentPositionSchema = new Schema(
+  {
+    x: { type: Number, required: true, min: 0, max: 100 },
+    y: { type: Number, required: true, min: 0, max: 100 },
+  },
+  { _id: false },
+);
+
 const equipmentSchema = new Schema(
   {
     gymId: { type: Schema.Types.ObjectId, ref: 'Gym', required: true, index: true },
     areaId: { type: Schema.Types.ObjectId, ref: 'Area', required: true, index: true },
     name: { type: String, required: true, trim: true },
+    position: { type: equipmentPositionSchema, required: false },
     beacon: { type: beaconSchema, required: true },
     adjustments: { type: [adjustmentSchema], default: [] },
     exerciseIds: [{ type: Schema.Types.ObjectId, ref: 'Exercise' }],
@@ -110,7 +119,9 @@ const usageSessionSchema = new Schema(
     clientSessionId: { type: String, required: true, trim: true },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     equipmentId: { type: Schema.Types.ObjectId, ref: 'Equipment', required: true },
+    equipmentName: { type: String, trim: true, maxlength: 120 },
     areaId: { type: Schema.Types.ObjectId, ref: 'Area', required: true },
+    areaName: { type: String, trim: true, maxlength: 100 },
     startedAt: { type: Date, required: true },
     endedAt: { type: Date, required: true },
     durationSec: { type: Number, required: true, min: 1 },
@@ -126,6 +137,7 @@ const setLogSchema = new Schema(
   {
     sessionId: { type: Schema.Types.ObjectId, ref: 'UsageSession', required: true },
     exerciseId: { type: Schema.Types.ObjectId, ref: 'Exercise', required: true },
+    exerciseName: { type: String, trim: true, maxlength: 120 },
     setNumber: { type: Number, required: true, min: 1 },
     load: { type: Number, required: true, min: 0 },
     reps: { type: Number, required: true, min: 1 },

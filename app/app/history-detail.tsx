@@ -6,9 +6,10 @@ import { Button, Card, EmptyState, ErrorState, Skeleton } from '../src/component
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
-import { fetchTrainingSessions } from '../src/api/services';
+import { fetchAllTrainingSessions } from '../src/api/services';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
+import { getTrainingTitle } from '../src/api/trainingProgress';
 
 export default function HistoryDetailScreen() {
   const theme = useTheme();
@@ -17,18 +18,13 @@ export default function HistoryDetailScreen() {
   const user = useAppStore((state) => state.user);
   const sessionId = z.string().min(1).safeParse(params.sessionId);
   const sessionsQuery = useQuery({
-    queryKey: ['sessions', 1],
-    queryFn: () => fetchTrainingSessions(1),
+    queryKey: ['sessions', 'all'],
+    queryFn: fetchAllTrainingSessions,
     enabled: Boolean(user && sessionId.success),
   });
-  const session = sessionsQuery.data?.data.find(
+  const session = sessionsQuery.data?.find(
     (item) => item._id === sessionId.data,
   );
-  const equipmentName =
-    session && typeof session.equipmentId !== 'string'
-      ? session.equipmentId.name
-      : 'Treino';
-
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
       <ScreenContainer>
@@ -41,7 +37,7 @@ export default function HistoryDetailScreen() {
         <ScreenHeader
           eyebrow="FITBEACON · DETALHE"
           subtitle="Resumo da sua sessão."
-          title={equipmentName}
+          title={session ? getTrainingTitle(session) : 'Detalhe do treino'}
         />
         {sessionsQuery.isLoading ? <Skeleton lines={3} /> : null}
         {sessionsQuery.isError ? (
@@ -78,6 +74,20 @@ export default function HistoryDetailScreen() {
                   color: theme.colors.secondary,
                   fontFamily: theme.typography.fontFamily.regular,
                   fontSize: theme.typography.fontSize.sm,
+                  lineHeight: theme.typography.lineHeight.md,
+                }}
+              >
+                Equipamento: {session.equipmentName ??
+                  (typeof session.equipmentId === 'string'
+                    ? 'Equipamento'
+                    : session.equipmentId.name)}
+                {session.areaName ? ` · Área: ${session.areaName}` : ''}
+              </Text>
+              <Text
+                style={{
+                  color: theme.colors.secondary,
+                  fontFamily: theme.typography.fontFamily.regular,
+                  fontSize: theme.typography.fontSize.sm,
                   lineHeight: theme.typography.lineHeight.lg,
                 }}
               >
@@ -89,9 +99,8 @@ export default function HistoryDetailScreen() {
             {session.sets.length ? (
               session.sets.map((set, index) => {
                 const exerciseName =
-                  typeof set.exerciseId === 'string'
-                    ? 'Exercício'
-                    : set.exerciseId.name;
+                  set.exerciseName ??
+                  (typeof set.exerciseId === 'string' ? 'Exercício' : set.exerciseId.name);
 
                 return (
                   <Card key={set._id ?? `${set.setNumber}-${index}`}>

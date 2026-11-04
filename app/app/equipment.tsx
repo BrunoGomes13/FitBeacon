@@ -179,6 +179,15 @@ export default function EquipmentScreen() {
     resolver: zodResolver(setSchema),
     defaultValues: { load: 0, reps: 10 },
   });
+  const goBack = (): void => {
+    if (!activeWorkout) {
+      router.back();
+      return;
+    }
+    void beaconRuntime.checkpointWorkout()
+      .catch(() => undefined)
+      .finally(() => router.back());
+  };
 
   useEffect(() => {
     if (restSeconds === null || restSeconds <= 0) {
@@ -214,7 +223,7 @@ export default function EquipmentScreen() {
         <Pressable
           accessibilityLabel="Voltar para a tela anterior"
         accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={goBack}
         style={{
           alignItems: 'center',
           alignSelf: 'flex-start',

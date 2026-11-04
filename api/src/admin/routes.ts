@@ -48,9 +48,15 @@ const adjustmentSchema = z.object({
   instructions: z.string().trim().min(1).max(2000),
 });
 
+const equipmentPositionSchema = z.object({
+  x: z.number().min(0).max(100),
+  y: z.number().min(0).max(100),
+});
+
 const equipmentCreateSchema = z.object({
   areaId: z.string().regex(/^[a-f\d]{24}$/i),
   name: z.string().trim().min(2).max(120),
+  position: equipmentPositionSchema.nullable().optional(),
   beacon: beaconSchema,
   adjustments: z.array(adjustmentSchema).max(30).default([]),
   exerciseIds: z
@@ -64,6 +70,7 @@ const equipmentCreateSchema = z.object({
 const equipmentUpdateSchema = z.object({
   areaId: equipmentCreateSchema.shape.areaId.optional(),
   name: equipmentCreateSchema.shape.name.optional(),
+  position: equipmentPositionSchema.nullable().optional(),
   beacon: equipmentCreateSchema.shape.beacon.optional(),
   adjustments: equipmentCreateSchema.shape.adjustments.optional(),
   exerciseIds: equipmentCreateSchema.shape.exerciseIds.optional(),

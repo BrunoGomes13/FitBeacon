@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useFieldArray, useForm } from 'react-hook-form';
+import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import type { Area, Equipment, Exercise } from '../lib/types';
 import { FormField } from './shared';
@@ -7,6 +7,8 @@ import { FormField } from './shared';
 export const equipmentSchema = z.object({
   name: z.string().trim().min(2, 'Informe ao menos 2 caracteres.').max(120),
   areaId: z.string().min(1, 'Selecione uma área.'),
+  positionX: z.union([z.literal(''), z.coerce.number().min(0).max(100)]),
+  positionY: z.union([z.literal(''), z.coerce.number().min(0).max(100)]),
   uuid: z.string().uuid('Informe um UUID válido.'),
   major: z.coerce.number().int().min(0).max(65535),
   minor: z.coerce.number().int().min(0).max(65535),
@@ -21,16 +23,23 @@ export const equipmentSchema = z.object({
     name: z.string().trim().min(1, 'Informe o nome da regulagem.'),
     instructions: z.string().trim().min(1, 'Informe como ajustar.'),
   })).max(30),
-}).refine((value) => value.rssiEnter > value.rssiExit, {
-  message: 'A entrada deve ser mais próxima que a saída.',
-  path: ['rssiEnter'],
-});
+})
+  .refine((value) => value.rssiEnter > value.rssiExit, {
+    message: 'A entrada deve ser mais próxima que a saída.',
+    path: ['rssiEnter'],
+  })
+  .refine(
+    (value) => (value.positionX === '') === (value.positionY === ''),
+    { message: 'Informe as duas coordenadas ou deixe o equipamento sem posição.', path: ['positionY'] },
+  );
 export type EquipmentFormInput = z.input<typeof equipmentSchema>;
 export type EquipmentFormValues = z.output<typeof equipmentSchema>;
 
 const emptyValues: EquipmentFormValues = {
   name: '',
   areaId: '',
+  positionX: '',
+  positionY: '',
   uuid: '',
   major: 0,
   minor: 0,
@@ -48,6 +57,9 @@ export function toEquipmentPayload(values: EquipmentFormValues) {
   return {
     name: values.name,
     areaId: values.areaId,
+    position: typeof values.positionX === 'number' && typeof values.positionY === 'number'
+      ? { x: values.positionX, y: values.positionY }
+      : null,
     beacon: {
       uuid: values.uuid,
       major: values.major,
@@ -71,6 +83,8 @@ export function equipmentFormValues(equipment?: Equipment): EquipmentFormValues 
   return {
     name: equipment.name,
     areaId: typeof equipment.areaId === 'string' ? equipment.areaId : equipment.areaId._id,
+    positionX: equipment.position?.x ?? '',
+    positionY: equipment.position?.y ?? '',
     uuid: equipment.beacon.uuid,
     major: equipment.beacon.major,
     minor: equipment.beacon.minor,
@@ -101,6 +115,7 @@ export function EquipmentEditorForm({
   const {
     register,
     control,
+    setValue,
     handleSubmit,
     formState: { errors },
   } = useForm<EquipmentFormInput, unknown, EquipmentFormValues>({
@@ -108,6 +123,13 @@ export function EquipmentEditorForm({
     defaultValues: equipmentFormValues(equipment),
   });
   const adjustments = useFieldArray({ control, name: 'adjustments' });
+  const positionX = useWatch({ control, name: 'positionX' });
+  const positionY = useWatch({ control, name: 'positionY' });
+  const placePin = (event: React.PointerEvent<SVGSVGElement>): void => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setValue('positionX', Math.round(((event.clientX - bounds.left) / bounds.width) * 100), { shouldValidate: true });
+    setValue('positionY', Math.round(((event.clientY - bounds.top) / bounds.height) * 100), { shouldValidate: true });
+  };
 
   return (
     <form className="grid gap-4" onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -120,6 +142,35 @@ export function EquipmentEditorForm({
           {areas.filter((area) => area.isActive).map((area) => <option key={area._id} value={area._id}>{area.name}</option>)}
         </select>
       </FormField>
+      <fieldset className="grid gap-3 rounded-md border border-border p-4">
+        <legend className="px-1 text-sm font-medium">Posição no mapa da academia (opcional)</legend>
+        <p className="m-0 text-sm text-muted">Toque ou clique na planta para posicionar este equipamento. As coordenadas também podem ser ajustadas numericamente.</p>
+        <svg
+          aria-label="Planta da academia; selecione para posicionar o equipamento"
+          className="w-full cursor-crosshair rounded-md border border-border bg-surface"
+          onPointerDown={placePin}
+          role="img"
+          viewBox="0 0 360 520"
+        >
+          <path d="M12 12H218V166H348V326H234V508H12Z" fill="var(--surface-raised)" stroke="var(--border)" strokeWidth="2" />
+          <path d="M16 16H214V160H16ZM222 170H344V322H222ZM16 172H216V504H16ZM222 330H344V504H222Z" fill="var(--surface)" stroke="var(--border)" />
+          <text fill="var(--text-muted)" fontSize="12" x="30" y="40">MUSCULAÇÃO</text>
+          <text fill="var(--text-muted)" fontSize="12" x="242" y="195">CARDIO</text>
+          <text fill="var(--text-muted)" fontSize="12" x="34" y="206">FUNCIONAL</text>
+          <text fill="var(--text-muted)" fontSize="12" x="242" y="364">LIVRE</text>
+          {typeof positionX === 'number' && typeof positionY === 'number' ? (
+            <circle cx={`${positionX}%`} cy={`${positionY}%`} fill="var(--primary)" r="12" stroke="white" strokeWidth="3" />
+          ) : null}
+        </svg>
+        <div className="grid grid-cols-2 gap-3">
+          <FormField error={errors.positionX?.message} htmlFor="equipment-position-x" label="Posição X (%)">
+            <input className="field" id="equipment-position-x" inputMode="numeric" max="100" min="0" type="number" {...register('positionX')} />
+          </FormField>
+          <FormField error={errors.positionY?.message} htmlFor="equipment-position-y" label="Posição Y (%)">
+            <input className="field" id="equipment-position-y" inputMode="numeric" max="100" min="0" type="number" {...register('positionY')} />
+          </FormField>
+        </div>
+      </fieldset>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <FormField error={errors.uuid?.message} htmlFor="equipment-uuid" label="UUID do beacon">
           <input className="field" id="equipment-uuid" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" {...register('uuid')} />

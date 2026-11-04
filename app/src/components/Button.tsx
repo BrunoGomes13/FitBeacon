@@ -1,4 +1,5 @@
 import { Pressable, Text } from 'react-native';
+import type { ReactNode } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../theme/ThemeProvider';
 
@@ -11,6 +12,7 @@ type ButtonProps = {
   variant?: ButtonVariant;
   loading?: boolean;
   disabled?: boolean;
+  icon?: ReactNode;
 };
 
 export function Button({
@@ -20,6 +22,7 @@ export function Button({
   variant = 'primary',
   loading = false,
   disabled = false,
+  icon,
 }: ButtonProps) {
   const theme = useTheme();
   const isDisabled = disabled || loading;
@@ -85,6 +88,7 @@ export function Button({
           …
         </Text>
       ) : null}
+      {icon}
       <Text
         style={{
           color: foregroundColor,

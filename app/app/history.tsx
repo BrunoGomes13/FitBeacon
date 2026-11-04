@@ -1,30 +1,35 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { ChevronRight, Dumbbell, Timer } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { Text, View } from 'react-native';
-import {
-  Button,
-  Card,
-  Chip,
-  EmptyState,
-  ErrorState,
-  Skeleton,
-} from '../src/components';
+import { Button, Card, EmptyState, ErrorState, Skeleton, Tabs } from '../src/components';
 import { ScreenContainer } from '../src/components/ScreenContainer';
 import { ScreenHeader } from '../src/components/ScreenHeader';
 import { StudentTabBar } from '../src/components/StudentTabBar';
 import { SessionOutboxPanel } from '../src/student/SessionOutboxPanel';
-import { fetchTrainingSessions } from '../src/api/services';
-import type { TrainingSession } from '../src/api/schemas';
+import { fetchAllTrainingSessions } from '../src/api/services';
+import {
+  filterSessionsByPeriod,
+  formatDurationMinutes,
+  getSessionExerciseCount,
+  getTrainingTitle,
+  getUsageRanking,
+} from '../src/api/trainingProgress';
 import { useAppStore } from '../src/state/store';
 import { useTheme } from '../src/theme/ThemeProvider';
 
-type HistoryFilter = 'all' | 'week' | 'month';
+type HistoryTab = 'workouts' | 'equipment' | 'areas';
+type Period = 'all' | 'week' | 'month';
 
-function getEquipmentName(session: TrainingSession): string {
-  return typeof session.equipmentId === 'string'
-    ? 'Equipamento'
-    : session.equipmentId.name;
+const historyTabs = [
+  { label: 'Treinos', value: 'workouts' },
+  { label: 'Equipamentos', value: 'equipment' },
+  { label: 'Áreas', value: 'areas' },
+] as const;
+
+function formatDuration(seconds: number): string {
+  return formatDurationMinutes(Math.round(seconds / 60));
 }
 
 export default function HistoryScreen() {
@@ -32,17 +37,29 @@ export default function HistoryScreen() {
   const router = useRouter();
   const user = useAppStore((state) => state.user);
   const consent = useAppStore((state) => state.trackingConsent);
-  const [filter, setFilter] = useState<HistoryFilter>('all');
-  const [cutoff, setCutoff] = useState(0);
+  const [tab, setTab] = useState<HistoryTab>('workouts');
+  const [period, setPeriod] = useState<Period>('month');
   const sessionsQuery = useQuery({
-    queryKey: ['sessions', 1],
-    queryFn: () => fetchTrainingSessions(1),
+    queryKey: ['sessions', 'all'],
+    queryFn: fetchAllTrainingSessions,
     enabled: Boolean(user),
   });
-  const filteredSessions =
-    sessionsQuery.data?.data.filter(
-      (session) => new Date(session.startedAt).getTime() >= cutoff,
-    ) ?? [];
+  const sessions = useMemo(
+    () => [...(sessionsQuery.data ?? [])].sort(
+      (left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime(),
+    ),
+    [sessionsQuery.data],
+  );
+  const periodSessions = useMemo(
+    () => filterSessionsByPeriod(sessions, period),
+    [period, sessions],
+  );
+  const rankings = useMemo(
+    () => tab === 'equipment'
+      ? getUsageRanking(periodSessions, 'equipment')
+      : getUsageRanking(periodSessions, 'area'),
+    [periodSessions, tab],
+  );
 
   return (
     <View style={{ backgroundColor: theme.colors.background, flex: 1 }}>
@@ -50,38 +67,49 @@ export default function HistoryScreen() {
         <ScreenHeader
           eyebrow="FITBEACON · EVOLUÇÃO"
           subtitle="Seus aparelhos, séries e tempo de treino."
-          title="Histórico de treinos"
+          title="Histórico"
         />
         <SessionOutboxPanel consent={consent} ownerId={user?.id} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
-          <Chip
-            accessibilityLabel="Filtrar todos os treinos"
-            label="Todos"
-            onPress={() => {
-              setFilter('all');
-              setCutoff(0);
-            }}
-            selected={filter === 'all'}
-          />
-          <Chip
-            accessibilityLabel="Filtrar últimos sete dias"
-            label="7 dias"
-            onPress={() => {
-              setFilter('week');
-              setCutoff(Date.now() - 7 * 24 * 60 * 60 * 1_000);
-            }}
-            selected={filter === 'week'}
-          />
-          <Chip
-            accessibilityLabel="Filtrar últimos trinta dias"
-            label="30 dias"
-            onPress={() => {
-              setFilter('month');
-              setCutoff(Date.now() - 30 * 24 * 60 * 60 * 1_000);
-            }}
-            selected={filter === 'month'}
-          />
-        </View>
+        <Button
+          accessibilityLabel="Abrir relatórios pessoais de uso"
+          label="Relatórios de uso"
+          onPress={() => router.push('/reports')}
+          variant="secondary"
+        />
+        <Tabs
+          accessibilityLabel="Seção do histórico"
+          items={historyTabs}
+          onChange={setTab}
+          value={tab}
+        />
+        {tab !== 'workouts' ? (
+          <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
+            {([
+              ['week', '7 dias'],
+              ['month', '30 dias'],
+              ['all', 'Tudo'],
+            ] as const).map(([value, label]) => (
+              <Pressable
+                accessibilityLabel={`Período: ${label}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: period === value }}
+                key={value}
+                onPress={() => setPeriod(value)}
+                style={{
+                  backgroundColor: period === value ? theme.colors.primary : theme.colors.elevated,
+                  borderRadius: theme.radius.pill,
+                  justifyContent: 'center',
+                  minHeight: 40,
+                  paddingHorizontal: theme.spacing.md,
+                }}
+              >
+                <Text style={{ color: period === value ? theme.colors.onPrimary : theme.colors.text, fontSize: theme.typography.fontSize.xs }}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {sessionsQuery.isLoading ? <Skeleton lines={3} /> : null}
         {sessionsQuery.isError ? (
           <Card>
@@ -94,85 +122,74 @@ export default function HistoryScreen() {
             />
           </Card>
         ) : null}
-        {sessionsQuery.isSuccess && filteredSessions.length === 0 ? (
+        {sessionsQuery.isSuccess && tab === 'workouts' && sessions.length === 0 ? (
           <Card>
             <EmptyState
-              accessibilityLabel="Nenhum treino no período selecionado"
-              description={
-                filter === 'all'
-                  ? 'Quando você terminar uma sessão, ela aparecerá aqui.'
-                  : 'Escolha outro período ou registre um novo treino.'
-              }
-              title="Nenhum treino neste período"
+              accessibilityLabel="Nenhum treino registrado"
+              description="Quando você terminar uma sessão, ela aparecerá aqui."
+              title="Seu histórico está vazio"
             />
           </Card>
         ) : null}
-        {sessionsQuery.isSuccess
-          ? filteredSessions.map((session) => (
-              <Card key={session._id}>
-                <View
-                  style={{
-                    alignItems: 'flex-start',
-                    flexDirection: 'row',
-                    gap: theme.spacing.md,
-                    justifyContent: 'space-between',
-                  }}
-                >
+        {sessionsQuery.isSuccess && tab === 'workouts'
+          ? sessions.map((session) => (
+              <Pressable
+                accessibilityLabel={`Ver ${getTrainingTitle(session)}`}
+                accessibilityRole="button"
+                key={session._id}
+                onPress={() => router.push(`/history-detail?sessionId=${encodeURIComponent(session._id)}`)}
+              >
+                <Card>
+                  <View style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.md }}>
+                    <View style={{ alignItems: 'center', backgroundColor: theme.colors.elevated, borderRadius: theme.radius.pill, height: 44, justifyContent: 'center', width: 44 }}>
+                      <Dumbbell color={theme.colors.primary} size={20} />
+                    </View>
+                    <View style={{ flex: 1, gap: theme.spacing.xs }}>
+                      <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>
+                        {new Date(session.startedAt).toLocaleDateString('pt-BR')}
+                      </Text>
+                      <Text style={{ color: theme.colors.text, fontFamily: theme.typography.fontFamily.semiBold, fontSize: theme.typography.fontSize.md }}>
+                        {getTrainingTitle(session)}
+                      </Text>
+                      <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>
+                        {formatDuration(session.durationSec)} · {getSessionExerciseCount(session)} exercícios
+                      </Text>
+                    </View>
+                    <ChevronRight color={theme.colors.secondary} size={20} />
+                  </View>
+                </Card>
+              </Pressable>
+            ))
+          : null}
+        {sessionsQuery.isSuccess && tab !== 'workouts' && rankings.length === 0 ? (
+          <Card>
+            <EmptyState
+              accessibilityLabel={`Nenhum uso de ${tab === 'equipment' ? 'equipamento' : 'área'} neste período`}
+              description="Registre treinos para ver seu relatório pessoal de uso."
+              title="Sem dados neste período"
+            />
+          </Card>
+        ) : null}
+        {sessionsQuery.isSuccess && tab !== 'workouts'
+          ? rankings.map((row, index) => (
+              <Card key={row.id}>
+                <View style={{ alignItems: 'center', flexDirection: 'row', gap: theme.spacing.md }}>
+                  <Text style={{ color: theme.colors.primary, fontFamily: theme.typography.fontFamily.bold, fontSize: theme.typography.fontSize.lg, width: 28 }}>
+                    {index + 1}
+                  </Text>
                   <View style={{ flex: 1, gap: theme.spacing.xs }}>
-                    <Text
-                      style={{
-                        color: theme.colors.text,
-                        fontFamily: theme.typography.fontFamily.semiBold,
-                        fontSize: theme.typography.fontSize.md,
-                        lineHeight: theme.typography.lineHeight.md,
-                      }}
-                    >
-                      {getEquipmentName(session)}
+                    <Text style={{ color: theme.colors.text, fontFamily: theme.typography.fontFamily.semiBold, fontSize: theme.typography.fontSize.md }}>
+                      {row.name}
                     </Text>
-                    <Text
-                      style={{
-                        color: theme.colors.secondary,
-                        fontFamily: theme.typography.fontFamily.regular,
-                        fontSize: theme.typography.fontSize.xs,
-                        lineHeight: theme.typography.lineHeight.sm,
-                      }}
-                    >
-                      {new Date(session.startedAt).toLocaleDateString('pt-BR')} ·{' '}
-                      {new Date(session.startedAt).toLocaleTimeString('pt-BR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                    <View style={{ backgroundColor: theme.colors.elevated, borderRadius: theme.radius.pill, height: 8, overflow: 'hidden' }}>
+                      <View style={{ backgroundColor: theme.colors.primary, borderRadius: theme.radius.pill, height: '100%', width: `${row.percentage}%` }} />
+                    </View>
+                    <Text style={{ color: theme.colors.secondary, fontSize: theme.typography.fontSize.xs }}>
+                      {formatDuration(row.durationSec)} · {row.percentage.toFixed(0)}% · {row.sessions} visitas
                     </Text>
                   </View>
-                  <Text
-                    style={{
-                      color: theme.colors.primary,
-                      fontFamily: theme.typography.fontFamily.semiBold,
-                      fontSize: theme.typography.fontSize.sm,
-                      lineHeight: theme.typography.lineHeight.md,
-                    }}
-                  >
-                    {Math.max(1, Math.round(session.durationSec / 60))} min
-                  </Text>
+                  <Timer color={theme.colors.info} size={18} />
                 </View>
-                <Text
-                  style={{
-                    color: theme.colors.secondary,
-                    fontFamily: theme.typography.fontFamily.regular,
-                    fontSize: theme.typography.fontSize.sm,
-                    lineHeight: theme.typography.lineHeight.md,
-                  }}
-                >
-                  {session.sets.length} séries registradas
-                </Text>
-                <Button
-                  accessibilityLabel={`Ver detalhes do treino em ${getEquipmentName(session)}`}
-                  label="Ver detalhes"
-                  onPress={() =>
-                    router.push(`/history-detail?sessionId=${encodeURIComponent(session._id)}`)
-                  }
-                  variant="secondary"
-                />
               </Card>
             ))
           : null}

@@ -121,14 +121,39 @@ são mostrados no painel.
 
 ### Fila offline do app
 
-Sessões concluídas aguardam em armazenamento seguro, isoladas pelo identificador do
-usuário autenticado, até que a API confirme o envio. A fila mantém até 50 sessões; ao
+Sessões concluídas aguardam em um arquivo JSON local versionado, isoladas pelo
+identificador do usuário autenticado, até que a API confirme o envio. As atualizações
+gravam primeiro em arquivo temporário e substituem o arquivo principal; itens da fila
+existentes no SecureStore são migrados ao primeiro acesso. O app usa `File`, `Directory`
+e `Paths` da API atual do Expo FileSystem. Arquivos vazios, corrompidos ou de versão
+desconhecida são isolados com extensão `.bad` e a fila é reiniciada. Se o arquivo falhar,
+o app tenta o SecureStore em blocos de até 1 KB e, por último, mantém os dados em memória
+e tenta sincronizá-los imediatamente. O SecureStore continua sendo o armazenamento
+principal dos tokens e do estado privado pequeno. A fila mantém até 50 sessões; ao
 exceder o limite, a mais antiga é descartada e o app informa o usuário. A sincronização
 é tentada ao abrir o app, ao voltar para primeiro plano, após um envio bem-sucedido e
 pelo botão manual em Perfil e Histórico. Falhas de rede e respostas 5xx permanecem
 pendentes com retentativas exponenciais e jitter; a renovação de autenticação é tentada
 uma vez pelo cliente da API. Outros erros 4xx ficam na lista de falhas com o motivo para
-consulta. A revogação do consentimento elimina pendências e falhas locais de uso.
+consulta. A revogação do consentimento elimina pendências, falhas e rascunhos locais.
+
+Cada série registrada é checkpointada junto ao equipamento, exercício, horário inicial e
+tempo acumulado. Se o app reabrir com um rascunho incompleto, ele é concluído e enfileirado
+localmente antes da sincronização. Finalizar manualmente, afastar-se do beacon, perder o
+sinal ou ir para segundo plano usam o mesmo fluxo idempotente: primeiro grava localmente,
+depois tenta enviar e só então volta ao Início. Uma falha de gravação local mantém o
+treino aberto para nova tentativa; falhas da API não removem a cópia local. Sessões com
+ao menos uma série são registradas mesmo com menos de 20 segundos. O limite de 20
+segundos descarta somente sessões sem séries.
+
+Voltar das telas de equipamento ou treino tenta salvar o checkpoint sem encerrar a
+sessão; a tela Início oferece Retomar e Finalizar enquanto houver treino em andamento.
+Em Perfil > Diagnóstico, **Testar armazenamento** verifica gravação, leitura e remoção
+de JSONs de 1 KB, 10 KB e 100 KB pelo adaptador de produção. A seção também informa o
+destino ativo, erros recentes e arquivos isolados em quarentena.
+
+O fluxo e os cenários de regressão estão descritos em
+[docs/design/FLUXO_CONCLUSAO_TREINO.md](./docs/design/FLUXO_CONCLUSAO_TREINO.md).
 
 ## Variáveis de ambiente
 
@@ -240,6 +265,37 @@ confirme a permissão de downloads e a pasta de arquivos do Chrome.
 - **Permissões Android:** revise a permissão Bluetooth nas configurações do telefone,
   verifique se Bluetooth está ligado e abra Diagnóstico para conferir a mensagem e a
   ação de recuperação.
+
+## Telas do aluno — Parte 2
+
+- **Equipamentos:** a lista pesquisa nome, área e número do aparelho, filtra por
+  Musculação, Cardio, Funcional e Livre e abre o detalhe já existente. Quando a API
+  não fornece imagem, o app usa um placeholder de sinal.
+- **Mapa:** a planta esquemática SVG é local, sem imagens de terceiros. Cada
+  equipamento pode ter `position.x` e `position.y` (percentuais de 0 a 100);
+  equipamentos sem coordenadas não são desenhados. A posição é configurada no CRUD
+  administrativo, tocando/clicando na planta ou informando as coordenadas. O seed
+  de demonstração posiciona os aparelhos ao inseri-los; o administrador pode ajustar
+  cada pin. O pin do equipamento detectado é destacado.
+- **Histórico e relatórios:** as abas Treinos, Equipamentos e Áreas usam apenas as
+  sessões do aluno autenticado. O nome do treino usa o grupo muscular predominante
+  das séries; sem essa informação, usa a data. A fila pendente permanece disponível
+  no Histórico.
+- **Perfil e configurações:** dados pessoais, academia, privacidade, suporte e
+  informações do app têm telas próprias. Notificações push não existem e ficam
+  desabilitadas com “Em breve”. A preferência de tema, idioma Português, permissões
+  do sistema, controles do Mock/Diagnóstico e saída da conta ficam em Configurações.
+- **Foto de perfil:** a imagem escolhida é copiada para o diretório privado do app;
+  a referência é persistida pelo SecureStore do sistema. A seleção de imagens usa
+  `expo-image-picker` e o armazenamento usa `expo-file-system`; ambos exigem um novo
+  build nativo Android/iOS antes de usar no aparelho.
+
+### Pendência de privacidade da API
+
+A API ainda não oferece exportação nem exclusão automatizada dos próprios dados do
+aluno. O app informa que a solicitação deve ser feita à administração da academia.
+Implementar endpoints autenticados de exportação e exclusão, com política de retenção
+e auditoria, permanece pendente; nenhum dado é apagado automaticamente pelo app.
 
 ## Checklist manual de aceite
 

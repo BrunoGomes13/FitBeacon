@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { recordTrainingSession } from './services';
-import { secureStateStorage } from '../state/secureStorage';
+import { getSessionStorage } from './expoSessionStorage';
 import {
   getSessionOutbox,
   type CompletedSessionPayload,
@@ -13,16 +13,9 @@ const emptySnapshot: SessionOutboxSnapshot = {
   pendingCount: 0,
   failures: [],
   errorMessage: null,
+  errorCode: null,
 };
-const outboxStorage: SessionOutboxStorage = {
-  getItem: async (key) => (await secureStateStorage.getItem(key)) ?? null,
-  setItem: async (key, value) => {
-    await secureStateStorage.setItem(key, value);
-  },
-  removeItem: async (key) => {
-    await secureStateStorage.removeItem(key);
-  },
-};
+const outboxStorage: SessionOutboxStorage = getSessionStorage();
 const emptySubscribe = (): (() => void) => () => undefined;
 const getEmptySnapshot = (): SessionOutboxSnapshot => emptySnapshot;
 

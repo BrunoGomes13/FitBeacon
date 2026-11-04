@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 
 type ToastTone = 'success' | 'error' | 'info';
@@ -8,6 +8,8 @@ type ToastProps = {
   message: string;
   tone?: ToastTone;
   accessibilityLabel: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 export function Toast({
@@ -15,6 +17,8 @@ export function Toast({
   message,
   tone = 'success',
   accessibilityLabel,
+  actionLabel,
+  onAction,
 }: ToastProps) {
   const theme = useTheme();
 
@@ -46,6 +50,24 @@ export function Toast({
       >
         {message}
       </Text>
+      {actionLabel && onAction ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+          onPress={onAction}
+          style={{ alignSelf: 'flex-start', minHeight: theme.sizes.controlHeight, justifyContent: 'center' }}
+        >
+          <Text
+            style={{
+              color: theme.colors.primary,
+              fontFamily: theme.typography.fontFamily.semiBold,
+              fontSize: theme.typography.fontSize.sm,
+            }}
+          >
+            {actionLabel}
+          </Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

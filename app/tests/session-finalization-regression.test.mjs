@@ -110,6 +110,28 @@ withMockSession('encerrar duas vezes seguidas é idempotente e silencioso', asyn
   assert.equal(controller.route, '/home');
 });
 
+test('encerramento simultâneo aguarda a mesma persistência e navega uma vez', async () => {
+  let finalizeCount = 0;
+  let navigationCount = 0;
+  let releaseFinalize;
+  const controller = new SessionConclusionController(() => { navigationCount += 1; });
+  controller.begin('concurrent-session');
+
+  const finalize = () => {
+    finalizeCount += 1;
+    return new Promise((resolve) => { releaseFinalize = resolve; });
+  };
+  const first = controller.conclude('concurrent-session', finalize);
+  const second = controller.conclude('concurrent-session', finalize);
+  assert.equal(first, second);
+  assert.equal(finalizeCount, 1);
+  releaseFinalize();
+
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+  assert.equal(navigationCount, 1);
+});
+
 withMockSession('afastar depois de encerrar manualmente não duplica nem mostra erro', async (controller, advance) => {
   advance(35_000);
   controller.finishManually();

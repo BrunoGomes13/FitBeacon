@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { AppUser, Equipment, SessionSetInput } from '../api/schemas';
-import { secureStateStorage } from './secureStorage';
+import type { AppUser, Equipment, SessionSetInput } from '../api/schemas.ts';
+import { secureStateStorage } from './secureStorage.ts';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
@@ -9,6 +9,8 @@ export type ActiveWorkout = {
   clientSessionId: string;
   equipment: Equipment;
   startedAt: string;
+  elapsedSeconds: number;
+  exerciseIndex: number;
   sets: SessionSetInput[];
 };
 
@@ -24,6 +26,7 @@ type AppState = {
   useMockBeacons: boolean;
   activeWorkout: ActiveWorkout | null;
   detectedEquipment: Equipment | null;
+  profilePhotoUri: string | null;
   hasHydrated: boolean;
   setSession: (
     tokens: { accessToken: string; refreshToken: string },
@@ -39,7 +42,9 @@ type AppState = {
   setUseMockBeacons: (enabled: boolean) => void;
   startWorkout: (workout: ActiveWorkout) => void;
   setDetectedEquipment: (equipment: Equipment | null) => void;
+  setProfilePhotoUri: (uri: string | null) => void;
   addWorkoutSet: (set: SessionSetInput) => void;
+  setWorkoutProgress: (progress: { elapsedSeconds?: number; exerciseIndex?: number }) => void;
   clearWorkout: () => void;
   setHasHydrated: (hydrated: boolean) => void;
 };
@@ -58,6 +63,7 @@ export const useAppStore = create<AppState>()(
       useMockBeacons: true,
       activeWorkout: null,
       detectedEquipment: null,
+      profilePhotoUri: null,
       hasHydrated: false,
       setSession: (tokens, user, rememberSession = true) =>
         set({
@@ -76,6 +82,7 @@ export const useAppStore = create<AppState>()(
           trackingConsent: false,
           activeWorkout: null,
           detectedEquipment: null,
+          profilePhotoUri: null,
         }),
       completeOnboarding: () => set({ onboardingComplete: true }),
       setThemePreference: (themePreference) => set({ themePreference }),
@@ -88,6 +95,7 @@ export const useAppStore = create<AppState>()(
       setUseMockBeacons: (useMockBeacons) => set({ useMockBeacons }),
       startWorkout: (activeWorkout) => set({ activeWorkout }),
       setDetectedEquipment: (detectedEquipment) => set({ detectedEquipment }),
+      setProfilePhotoUri: (profilePhotoUri) => set({ profilePhotoUri }),
       addWorkoutSet: (workoutSet) =>
         set((state) =>
           state.activeWorkout
@@ -99,6 +107,15 @@ export const useAppStore = create<AppState>()(
               }
             : state,
         ),
+      setWorkoutProgress: (progress) =>
+        set((state) => state.activeWorkout
+          ? {
+              activeWorkout: {
+                ...state.activeWorkout,
+                ...progress,
+              },
+            }
+          : state),
       clearWorkout: () => set({ activeWorkout: null }),
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
     }),
@@ -117,9 +134,9 @@ export const useAppStore = create<AppState>()(
         onboardingComplete: state.onboardingComplete,
         themePreference: state.themePreference,
         trackingConsent: state.trackingConsent,
+        profilePhotoUri: state.profilePhotoUri,
         developerMode: state.developerMode,
         useMockBeacons: state.useMockBeacons,
-        activeWorkout: state.activeWorkout,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

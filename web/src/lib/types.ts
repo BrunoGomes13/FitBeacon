@@ -54,6 +54,7 @@ export type Adjustment = {
 export type Equipment = {
   _id: string;
   name: string;
+  position?: { x: number; y: number } | null;
   gymId: string;
   areaId: Area | string;
   beacon: {

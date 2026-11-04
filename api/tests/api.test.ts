@@ -474,6 +474,107 @@ describe('sessões em lote', () => {
     expect(response.body.code).toBe('IDEMPOTENCY_CONFLICT');
     expect(await UsageSession.countDocuments()).toBe(0);
   });
+
+  it('salva séries abaixo de 20 segundos com snapshots e não registra sessões curtas sem séries', async () => {
+    const token = await login('student@example.test', 'Senha-Forte-Teste-2026!');
+    const secondExercise = await Exercise.create({
+      gymId,
+      name: 'Cadeira extensora',
+      muscleGroup: 'Quadríceps',
+      steps: ['Ajuste o encosto'],
+      commonMistakes: [],
+      recommendedSets: 3,
+      recommendedReps: 12,
+      isActive: true,
+    });
+    await Equipment.updateOne(
+      { _id: equipmentId },
+      { $push: { exerciseIds: secondExercise._id } },
+    );
+    const startedAt = new Date(Date.now() - 10_000);
+    const session = {
+      clientSessionId: randomUUID(),
+      equipmentId: equipmentId.toString(),
+      equipmentName: 'Leg press (nome copiado)',
+      areaId: areaId.toString(),
+      areaName: 'Musculação (nome copiado)',
+      startedAt: startedAt.toISOString(),
+      endedAt: new Date(startedAt.getTime() + 5_000).toISOString(),
+      sets: [{
+        exerciseId: exerciseId.toString(),
+        exerciseName: 'Extensão de joelho (nome copiado)',
+        setNumber: 1,
+        load: 35,
+        reps: 10,
+      }, {
+        exerciseId: secondExercise._id.toString(),
+        exerciseName: 'Agachamento goblet (nome copiado)',
+        setNumber: 1,
+        load: 15,
+        reps: 12,
+      }],
+    };
+
+    const saved = await request(app)
+      .post('/api/v1/sessions/batch')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sessions: [session] });
+
+    expect(saved.status).toBe(201);
+    expect(await UsageSession.findOne({ clientSessionId: session.clientSessionId })).toMatchObject({
+      durationSec: 5,
+      equipmentName: session.equipmentName,
+      areaName: session.areaName,
+    });
+    expect(await SetLog.countDocuments({ sessionId: (await UsageSession.findOne({
+      clientSessionId: session.clientSessionId,
+    }))?._id })).toBe(2);
+
+    const history = await request(app)
+      .get('/api/v1/sessions')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(history.body.data[0]).toMatchObject({
+      clientSessionId: session.clientSessionId,
+      equipmentName: session.equipmentName,
+      areaName: session.areaName,
+      durationSec: 5,
+    });
+    expect(history.body.data[0].sets.map((set: { exerciseName: string }) => set.exerciseName))
+      .toEqual(expect.arrayContaining([
+        session.sets[0].exerciseName,
+        session.sets[1].exerciseName,
+      ]));
+
+    const adminToken = await login('admin@example.test', 'Senha-Forte-Teste-2026!');
+    const usage = await request(app)
+      .get('/api/v1/reports/usage')
+      .query({
+        groupBy: 'equipment',
+        from: new Date(startedAt.getTime() - 1_000).toISOString(),
+        to: new Date(startedAt.getTime() + 6_000).toISOString(),
+      })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(usage.body.data).toMatchObject([
+      { _id: equipmentId.toString(), sessions: 1, totalDurationSec: 5 },
+    ]);
+
+    const shortWithoutSets = await request(app)
+      .post('/api/v1/sessions/batch')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sessions: [{
+          ...session,
+          clientSessionId: randomUUID(),
+          endedAt: new Date(startedAt.getTime() + 5_000).toISOString(),
+          sets: [],
+        }],
+      });
+
+    expect(shortWithoutSets.status).toBe(400);
+    expect(shortWithoutSets.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
 });
 
 describe('relatórios administrativos', () => {

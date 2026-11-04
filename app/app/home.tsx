@@ -150,6 +150,7 @@ export default function HomeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const user = useAppStore((state) => state.user);
+  const activeWorkout = useAppStore((state) => state.activeWorkout);
   const consent = useAppStore((state) => state.trackingConsent);
   const developerMode = useAppStore((state) => state.developerMode);
   const beacon = useStudentBeacon();
@@ -238,6 +239,41 @@ export default function HomeScreen() {
             Bora treinar hoje?
           </Text>
         </View>
+
+        {activeWorkout ? (
+          <Card>
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontFamily: theme.typography.fontFamily.semiBold,
+                fontSize: theme.typography.fontSize.md,
+              }}
+            >
+              Treino em andamento
+            </Text>
+            <Text style={{ color: theme.colors.secondary }}>
+              {activeWorkout.equipment.name}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
+              <Button
+                accessibilityLabel="Retomar treino em andamento"
+                label="Retomar"
+                onPress={() => router.push('/workout')}
+                variant="primary"
+              />
+              <Button
+                accessibilityLabel="Finalizar treino em andamento"
+                label="Finalizar"
+                onPress={() => {
+                  void beacon.finishSession().catch((error: unknown) => {
+                    console.error('Falha ao finalizar o treino pela tela inicial.', error);
+                  });
+                }}
+                variant="secondary"
+              />
+            </View>
+          </Card>
+        ) : null}
 
         {shouldShowNearbyEquipmentBanner(detectedEquipment) ? (
           <LinearGradient

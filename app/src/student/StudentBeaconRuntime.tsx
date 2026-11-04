@@ -12,7 +12,8 @@ import * as Haptics from 'expo-haptics';
 import { useQueryClient } from '@tanstack/react-query';
 import { AppState, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fetchEquipmentByBeacon } from '../api/services';
+import { fetchEquipmentByBeacon, recordTrainingSession } from '../api/services';
+import { getSessionStorage } from '../api/expoSessionStorage';
 import { useSessionOutbox } from '../api/useSessionOutbox';
 import type {
   BeaconEvent,
@@ -26,12 +27,24 @@ import { MockBeaconProvider } from '../beacon/MockBeaconProvider';
 import { RealBeaconProvider } from '../beacon/RealBeaconProvider';
 import { requestBeaconPermissions } from '../beacon/permissions';
 import { SessionConclusionController } from './SessionConclusionController';
+import {
+  WorkoutCompletionService,
+  WorkoutDraftRepository,
+  WorkoutLocalSaveError,
+  type WorkoutConclusionDiagnostic,
+  type WorkoutDraftInput,
+} from './WorkoutCompletionService';
 import { useAppStore } from '../state/store';
 import { Toast } from '../components/Toast';
 
 type RuntimeStatus = 'idle' | 'loading' | 'scanning' | 'error' | 'consent-required';
 type FeedbackTone = 'success' | 'error' | 'info';
-type SessionFeedback = { message: string; tone: FeedbackTone; countdownUntil?: number };
+type SessionFeedback = {
+  message: string;
+  tone: FeedbackTone;
+  countdownUntil?: number;
+  retryKind?: 'checkpoint' | 'conclusion';
+};
 
 export type StudentBeaconState = {
   status: RuntimeStatus;
@@ -40,8 +53,11 @@ export type StudentBeaconState = {
   isMock: boolean;
   canSimulateExit: boolean;
   simulate: (scenario: MockScenario) => void;
-  finishSession: () => void;
+  finishSession: () => Promise<void>;
   forceEndSession: () => void;
+  checkpointWorkout: () => Promise<void>;
+  retryFinish: () => Promise<void>;
+  lastWorkoutConclusion: WorkoutConclusionDiagnostic | null;
   sessionFeedback: SessionFeedback | null;
 };
 
@@ -81,13 +97,6 @@ function errorMessage(error: unknown): string {
     : 'Não foi possível concluir a operação neste aparelho.';
 }
 
-function formatDuration(durationMs: number): string {
-  const totalSeconds = Math.floor(durationMs / 1_000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes} min ${seconds} s` : `${seconds} s`;
-}
-
 function isScannerScreen(pathname: string): boolean {
   return (
     pathname === '/home' ||
@@ -114,12 +123,21 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState(emptySnapshot);
   const [sessionFeedback, setSessionFeedback] = useState<SessionFeedback | null>(null);
   const [exitSimulated, setExitSimulated] = useState(false);
+  const [lastWorkoutConclusion, setLastWorkoutConclusion] =
+    useState<WorkoutConclusionDiagnostic | null>(null);
   const providerRef = useRef<BeaconProvider | null>(null);
   const machineRef = useRef(new BeaconStateMachine());
   const processEventsRef = useRef<(events: BeaconEvent[]) => void>(() => {});
   const syncTickerRef = useRef<() => void>(() => {});
   const syncScannerRef = useRef<() => void>(() => {});
   const sessionByKey = useRef(new Map<string, SessionMeta>());
+  const conclusionPromises = useRef(new Map<string, Promise<void>>());
+  const draftRepositoryRef = useRef<WorkoutDraftRepository | null>(null);
+  const completionServiceRef = useRef<WorkoutCompletionService | null>(null);
+  const checkpointWorkoutRef = useRef<() => Promise<void>>(async () => {});
+  const retryFinishRef = useRef<() => Promise<void>>(async () => {});
+  const finishActiveWorkoutRef = useRef<() => Promise<void>>(async () => {});
+  const failedSessionRef = useRef<SessionMeta | null>(null);
   const equipmentByKey = useRef(
     new Map<string, Awaited<ReturnType<typeof fetchEquipmentByBeacon>>>(),
   );
@@ -169,8 +187,13 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hasHydrated || !user || !trackingConsent) {
-      if (hasHydrated && !trackingConsent) {
+      if (hasHydrated && user && !trackingConsent) {
         useAppStore.getState().clearWorkout();
+        void new WorkoutDraftRepository(getSessionStorage())
+          .remove(user.id)
+          .catch((error: unknown) => {
+            console.error('Não foi possível limpar o rascunho após a revogação do consentimento.', error);
+          });
       }
       return;
     }
@@ -186,6 +209,18 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       router.dismissAll();
       router.replace('/home');
     });
+    const drafts = new WorkoutDraftRepository(getSessionStorage());
+    const completionService = outbox
+      ? new WorkoutCompletionService({
+          drafts,
+          outbox,
+          send: recordTrainingSession,
+        })
+      : null;
+    draftRepositoryRef.current = drafts;
+    completionServiceRef.current = completionService;
+    conclusionPromises.current.clear();
+    failedSessionRef.current = null;
     sessionByKey.current.clear();
     equipmentByKey.current.clear();
     equipmentPromiseByKey.current.clear();
@@ -195,6 +230,7 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     let appState = AppState.currentState;
     let processEvents: (events: BeaconEvent[]) => void = () => {};
     let scannerActive = false;
+    let recoveryReady = false;
     let scannerTransition: Promise<void> = Promise.resolve();
 
     const updateCountdown = (): void => {
@@ -286,6 +322,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
             clientSessionId: session.clientSessionId,
             equipment,
             startedAt: new Date(session.startedAt).toISOString(),
+            elapsedSeconds: 0,
+            exerciseIndex: 0,
             sets: [],
           });
         }
@@ -307,6 +345,145 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       });
     };
 
+    const saveCurrentDraft = async (): Promise<void> => {
+      const activeWorkout = useAppStore.getState().activeWorkout;
+      if (!activeWorkout || !user) return;
+      await drafts.save({
+        ownerId: user.id,
+        clientSessionId: activeWorkout.clientSessionId,
+        equipment: activeWorkout.equipment,
+        startedAt: activeWorkout.startedAt,
+        elapsedSeconds: activeWorkout.elapsedSeconds,
+        exerciseIndex: activeWorkout.exerciseIndex,
+        sets: activeWorkout.sets,
+      });
+    };
+    checkpointWorkoutRef.current = saveCurrentDraft;
+
+    const concludeMeta = (meta: SessionMeta, endedAt: number): Promise<void> => {
+      const existing = conclusionPromises.current.get(meta.clientSessionId);
+      if (existing) return existing;
+      if (!completionService) {
+        return Promise.reject(new Error('Não foi possível acessar a fila local de treinos.'));
+      }
+
+      const result = conclusionController.conclude(meta.clientSessionId, async () => {
+        const currentWorkout = useAppStore.getState().activeWorkout;
+        const equipment =
+          currentWorkout?.clientSessionId === meta.clientSessionId
+            ? currentWorkout.equipment
+            : await ensureEquipment(meta.beacon);
+        const workout = useAppStore.getState().activeWorkout;
+        const draft: WorkoutDraftInput = {
+          ownerId: user.id,
+          clientSessionId: meta.clientSessionId,
+          equipment,
+          startedAt:
+            workout?.clientSessionId === meta.clientSessionId
+              ? workout.startedAt
+              : new Date(meta.startedAt).toISOString(),
+          elapsedSeconds:
+            workout?.clientSessionId === meta.clientSessionId
+              ? workout.elapsedSeconds
+              : Math.max(0, Math.floor((endedAt - meta.startedAt) / 1_000)),
+          exerciseIndex:
+            workout?.clientSessionId === meta.clientSessionId
+              ? workout.exerciseIndex
+              : 0,
+          sets:
+            workout?.clientSessionId === meta.clientSessionId
+              ? workout.sets
+              : [],
+        };
+        const completion = await completionService.complete(
+          draft,
+          endedAt,
+          trackingConsent,
+        );
+        if (useAppStore.getState().activeWorkout?.clientSessionId === meta.clientSessionId) {
+          useAppStore.getState().clearWorkout();
+        }
+        sessionByKey.current.delete(meta.beacon.key);
+        failedSessionRef.current = null;
+        setSessionFeedback({
+          tone: completion.status === 'saved' ? 'success' : 'info',
+          message: completion.message,
+        });
+        try {
+          setLastWorkoutConclusion(await drafts.loadDiagnostic());
+        } catch (error) {
+          console.error('Não foi possível carregar o diagnóstico da conclusão.', error);
+        }
+        void queryClientFromProvider.invalidateQueries({ queryKey: ['sessions'] });
+      });
+      if (result === false) return Promise.resolve();
+
+      const operation = Promise.resolve(result)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          failedSessionRef.current = meta;
+          if (error instanceof WorkoutLocalSaveError) {
+            setLastWorkoutConclusion({
+              result: 'failed',
+              failedStage: 'local-save',
+              code: error.code,
+              reason: error.message,
+              errorName: error.originalErrorName,
+              errorMessage: error.originalMessage,
+              updatedAt: Date.now(),
+            });
+          }
+          const reason =
+            error instanceof Error ? error.message : 'Falha ao salvar o treino no aparelho.';
+          setSessionFeedback({
+            tone: 'error',
+            message: `Não foi possível salvar: ${reason}`,
+            retryKind: 'conclusion',
+          });
+          throw error;
+        })
+        .finally(() => {
+          if (conclusionPromises.current.get(meta.clientSessionId) === operation) {
+            conclusionPromises.current.delete(meta.clientSessionId);
+          }
+        });
+      conclusionPromises.current.set(meta.clientSessionId, operation);
+      return operation;
+    };
+    finishActiveWorkoutRef.current = async () => {
+      const workout = useAppStore.getState().activeWorkout;
+      if (!workout) return;
+      let meta = [...sessionByKey.current.values()].find(
+        (session) => session.clientSessionId === workout.clientSessionId,
+      );
+      if (!meta) {
+        const beacon = workout.equipment.beacon;
+        meta = {
+          clientSessionId: workout.clientSessionId,
+          startedAt: new Date(workout.startedAt).getTime(),
+          beacon: {
+            key: `${beacon.uuid}:${beacon.major}:${beacon.minor}`,
+            uuid: beacon.uuid,
+            major: beacon.major,
+            minor: beacon.minor,
+          },
+        };
+        sessionByKey.current.set(meta.beacon.key, meta);
+        if (
+          !conclusionController.isActive(meta.clientSessionId) &&
+          !conclusionController.isCompleted(meta.clientSessionId)
+        ) {
+          conclusionController.begin(meta.clientSessionId);
+        }
+      }
+      await concludeMeta(meta, Date.now());
+    };
+    retryFinishRef.current = async () => {
+      const meta = failedSessionRef.current;
+      if (!meta) return;
+      await concludeMeta(meta, Date.now());
+    };
+
     processEvents = (events: BeaconEvent[]): void => {
       for (const event of events) {
         if (event.type === 'session-start') {
@@ -325,6 +502,8 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
               clientSessionId: meta.clientSessionId,
               equipment,
               startedAt: new Date(meta.startedAt).toISOString(),
+              elapsedSeconds: 0,
+              exerciseIndex: 0,
               sets: [],
             });
           }
@@ -344,100 +523,19 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           });
         } else if (event.type === 'session-end') {
           const meta = sessionByKey.current.get(event.session.beacon.key);
-          sessionByKey.current.delete(event.session.beacon.key);
 
           if (!meta) {
             continue;
           }
 
           setExitSimulated(true);
-          conclusionController.conclude(meta.clientSessionId, () => {
-            void (async () => {
-              let droppedOldest = false;
-              try {
-                const equipment = await ensureEquipment(meta.beacon);
-                const activeWorkout = useAppStore.getState().activeWorkout;
-                const sets =
-                  activeWorkout?.clientSessionId === meta.clientSessionId
-                    ? activeWorkout.sets
-                    : [];
-
-                if (!outbox) {
-                  throw new Error('Não foi possível acessar a fila de sessões deste usuário.');
-                }
-                const droppedId = await outbox.enqueue({
-                  clientSessionId: meta.clientSessionId,
-                  equipmentId: equipment._id,
-                  areaId: equipment.areaId._id,
-                  startedAt: new Date(event.session.startedAt).toISOString(),
-                  endedAt: new Date(event.session.endedAt).toISOString(),
-                  sets,
-                });
-                droppedOldest = droppedId !== null;
-                if (useAppStore.getState().activeWorkout?.clientSessionId === meta.clientSessionId) {
-                  useAppStore.getState().clearWorkout();
-                }
-
-                await syncOutbox();
-                void queryClientFromProvider.invalidateQueries({
-                  queryKey: ['sessions'],
-                });
-                const outboxSnapshot = outbox.getSnapshot();
-                const failedSession = outboxSnapshot.failures.find(
-                  (failure) => failure.clientSessionId === meta.clientSessionId,
-                );
-                if (droppedId) {
-                  setSessionFeedback({
-                    tone: 'info',
-                    message: 'Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada para salvar a atual.',
-                  });
-                } else if (failedSession) {
-                  setSessionFeedback({
-                    tone: 'error',
-                    message: `Sessão salva, mas não registrada: ${failedSession.reason}`,
-                  });
-                } else if (outboxSnapshot.pendingCount > 0) {
-                  setSessionFeedback({
-                    tone: outboxSnapshot.errorMessage ? 'error' : 'info',
-                    message: outboxSnapshot.errorMessage
-                      ? `Sessão salva no aparelho. ${outboxSnapshot.errorMessage}`
-                      : 'Sessão salva no aparelho e aguardando sincronização.',
-                  });
-                } else {
-                  setSessionFeedback({
-                    tone: 'success',
-                    message: `Sessão registrada: ${equipment.name}, ${formatDuration(event.session.durationMs)}.`,
-                  });
-                }
-              } catch (error: unknown) {
-                const detail = errorMessage(error);
-                outbox?.reportError(
-                  new Error('Não foi possível salvar ou sincronizar a sessão neste aparelho.'),
-                );
-                setSessionFeedback({
-                  tone: 'error',
-                  message: droppedOldest
-                    ? `Limite de 50 sessões atingido; a sessão pendente mais antiga foi descartada. Não foi possível sincronizar: ${detail}`
-                    : `Não foi possível salvar a sessão: ${detail}`,
-                });
-              }
-            })();
-          });
+          void concludeMeta(meta, event.session.endedAt).catch(() => undefined);
         } else if (event.type === 'session-discarded') {
           const session = sessionByKey.current.get(event.session.beacon.key);
-          sessionByKey.current.delete(event.session.beacon.key);
 
           if (session) {
             setExitSimulated(true);
-            conclusionController.conclude(session.clientSessionId, () => {
-              if (useAppStore.getState().activeWorkout?.clientSessionId === session.clientSessionId) {
-                useAppStore.getState().clearWorkout();
-              }
-              setSessionFeedback({
-                tone: 'info',
-                message: 'Sessão curta, não registrada.',
-              });
-            });
+            void concludeMeta(session, event.session.endedAt).catch(() => undefined);
           }
         } else if (event.type === 'zone-exit') {
           if (lastOpenedEquipmentKey.current === event.beacon.key) {
@@ -451,6 +549,27 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
     syncTickerRef.current = syncTicker;
 
     const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' && appState === 'active') {
+        const activeWorkout = useAppStore.getState().activeWorkout;
+        if (activeWorkout) {
+          void (async () => {
+            await saveCurrentDraft();
+            const meta = [...sessionByKey.current.values()].find(
+              (session) => session.clientSessionId === activeWorkout.clientSessionId,
+            );
+            if (meta) {
+              processEvents(machine.reset(Date.now()));
+              setSnapshot(machine.getSnapshot());
+            }
+          })().catch((error: unknown) => {
+            setSessionFeedback({
+              tone: 'error',
+              message: `Não foi possível salvar: ${errorMessage(error)}`,
+              retryKind: 'checkpoint',
+            });
+          });
+        }
+      }
       appState = nextState;
       if (nextState === 'active') {
         runTick();
@@ -462,8 +581,10 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
     const shouldScan = (): boolean =>
       !cancelled &&
+      recoveryReady &&
       appState === 'active' &&
-      isScannerScreen(pathnameRef.current);
+      (isScannerScreen(pathnameRef.current) ||
+        (pathnameRef.current === '/settings' && developerMode && isMock));
 
     const startScanner = async (): Promise<void> => {
       if (!isMock) {
@@ -550,10 +671,103 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       });
       return scannerTransition;
     };
+
+    const recoverPendingWorkout = async (): Promise<void> => {
+      try {
+        let draft = await drafts.load(user.id);
+        const persistedWorkout = useAppStore.getState().activeWorkout;
+        if (!draft && persistedWorkout) {
+          draft = await drafts.save({
+            ownerId: user.id,
+            clientSessionId: persistedWorkout.clientSessionId,
+            equipment: persistedWorkout.equipment,
+            startedAt: persistedWorkout.startedAt,
+            elapsedSeconds: persistedWorkout.elapsedSeconds ??
+              Math.max(0, Math.floor((Date.now() - new Date(persistedWorkout.startedAt).getTime()) / 1_000)),
+            exerciseIndex: persistedWorkout.exerciseIndex ?? 0,
+            sets: persistedWorkout.sets,
+          });
+        }
+
+        if (draft) {
+          const recoveredDraft = draft;
+          useAppStore.getState().startWorkout({
+            clientSessionId: recoveredDraft.clientSessionId,
+            equipment: recoveredDraft.equipment,
+            startedAt: recoveredDraft.startedAt,
+            elapsedSeconds: recoveredDraft.elapsedSeconds,
+            exerciseIndex: recoveredDraft.exerciseIndex,
+            sets: recoveredDraft.sets,
+          });
+          conclusionController.begin(recoveredDraft.clientSessionId);
+          const completeRecovered = async (): Promise<void> => {
+            await outbox?.initialize();
+            const result = await conclusionController.conclude(
+              recoveredDraft.clientSessionId,
+              async () => {
+                if (!completionService) {
+                  throw new Error('Não foi possível acessar a fila local de treinos.');
+                }
+                const completion = await completionService.complete(
+                  {
+                    ownerId: user.id,
+                    clientSessionId: recoveredDraft.clientSessionId,
+                    equipment: recoveredDraft.equipment,
+                    startedAt: recoveredDraft.startedAt,
+                    elapsedSeconds: recoveredDraft.elapsedSeconds,
+                    exerciseIndex: recoveredDraft.exerciseIndex,
+                    sets: recoveredDraft.sets,
+                  },
+                  Date.now(),
+                  trackingConsent,
+                );
+                useAppStore.getState().clearWorkout();
+                setSessionFeedback({
+                  tone: completion.status === 'saved' ? 'success' : 'info',
+                  message: completion.status === 'discarded'
+                    ? 'Treino curto, não registrado.'
+                    : completion.message,
+                });
+                try {
+                  setLastWorkoutConclusion(await drafts.loadDiagnostic());
+                } catch (error) {
+                  console.error('Não foi possível carregar o diagnóstico da conclusão.', error);
+                }
+              },
+            );
+            if (result === false) {
+              throw new Error('A recuperação do treino pendente foi ignorada.');
+            }
+          };
+          retryFinishRef.current = completeRecovered;
+          await completeRecovered();
+        } else {
+          await outbox?.initialize();
+          try {
+            setLastWorkoutConclusion(await drafts.loadDiagnostic());
+          } catch (error) {
+            console.error('Não foi possível carregar o diagnóstico da conclusão.', error);
+          }
+        }
+      } catch (error) {
+        const activeWorkout = useAppStore.getState().activeWorkout;
+        setSessionFeedback({
+          tone: 'error',
+          message: activeWorkout
+            ? `Não foi possível salvar: ${errorMessage(error)}`
+            : `Não foi possível recuperar o treino: ${errorMessage(error)}`,
+          retryKind: activeWorkout ? 'conclusion' : undefined,
+        });
+        if (activeWorkout) router.replace('/workout');
+      } finally {
+        recoveryReady = true;
+        void syncScanner();
+      }
+    };
     syncScannerRef.current = () => {
       void syncScanner();
     };
-    void syncScanner();
+    void recoverPendingWorkout();
 
     return () => {
       cancelled = true;
@@ -633,25 +847,28 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
       },
       finishSession: () => {
         if (!machineRef.current.getSnapshot().activeBeaconKey) {
-          return;
+          return finishActiveWorkoutRef.current();
         }
 
         setExitSimulated(true);
+        const now = Date.now();
         try {
-          if (isMock) {
-            providerRef.current?.simulate?.('exit');
-          }
-          const now = Date.now();
-          processEventsRef.current(
-            isMock
-              ? machineRef.current.reset(now)
-              : machineRef.current.finishSession(now),
-          );
+          processEventsRef.current(machineRef.current.reset(now));
           setSnapshot(machineRef.current.getSnapshot());
           syncTickerRef.current();
+          if (isMock) providerRef.current?.simulate?.('exit');
+          const activeWorkout = useAppStore.getState().activeWorkout;
+          const meta = activeWorkout
+            ? [...sessionByKey.current.values()].find(
+                (session) => session.clientSessionId === activeWorkout.clientSessionId,
+              )
+            : null;
+          return meta
+            ? conclusionPromises.current.get(meta.clientSessionId) ?? Promise.resolve()
+            : Promise.resolve();
         } catch (error) {
-          setExitSimulated(false);
           setMessage(errorMessage(error));
+          return Promise.reject(error);
         }
       },
       forceEndSession: () => {
@@ -665,21 +882,36 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
 
         setExitSimulated(true);
         try {
-          providerRef.current?.simulate?.('exit');
           processEventsRef.current(machineRef.current.reset(Date.now()));
           setSnapshot(machineRef.current.getSnapshot());
           syncTickerRef.current();
+          providerRef.current?.simulate?.('exit');
         } catch (error) {
-          setExitSimulated(false);
           setMessage(errorMessage(error));
         }
       },
+      checkpointWorkout: async () => {
+        try {
+          await checkpointWorkoutRef.current();
+          setSessionFeedback(null);
+        } catch (error) {
+          setSessionFeedback({
+            tone: 'error',
+            message: `Não foi possível salvar: ${errorMessage(error)}`,
+            retryKind: 'checkpoint',
+          });
+          throw error;
+        }
+      },
+      retryFinish: () => retryFinishRef.current(),
+      lastWorkoutConclusion,
       canSimulateExit: snapshot.activeBeaconKey !== null && !exitSimulated,
       sessionFeedback,
     }),
     [
       hasHydrated,
       exitSimulated,
+      lastWorkoutConclusion,
       isMock,
       message,
       snapshot,
@@ -707,6 +939,25 @@ export function StudentBeaconRuntime({ children }: { children: ReactNode }) {
           message={sessionFeedback?.message ?? ''}
           tone={sessionFeedback?.tone}
           visible={sessionFeedback !== null}
+          actionLabel={
+            sessionFeedback?.retryKind === 'checkpoint' ||
+            sessionFeedback?.retryKind === 'conclusion'
+              ? 'Tentar de novo'
+              : undefined
+          }
+          onAction={
+            sessionFeedback?.retryKind === 'checkpoint'
+              ? () => {
+                  void contextValue.checkpointWorkout();
+                }
+              : sessionFeedback?.retryKind === 'conclusion'
+                ? () => {
+                    void contextValue.retryFinish().catch((error: unknown) => {
+                      console.error('Falha ao repetir a conclusão do treino.', error);
+                    });
+                  }
+                : undefined
+          }
         />
       </View>
       {children}

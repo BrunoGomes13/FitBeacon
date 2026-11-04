@@ -46,6 +46,14 @@
       "expo-video",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permita o acesso às fotos para escolher sua imagem de perfil.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-navigation-bar",
         {
           "style": "dark"
