@@ -388,20 +388,6 @@ O guia completo cobre DNS SRV do MongoDB, caminhos longos CMake/Ninja, ADB, USB 
 
 Antes de enviar mudanças, rode typecheck, lint e testes dos workspaces afetados; preserve testes/asserções existentes e não inclua arquivos `.env`, segredos, dados de aluno ou dumps do banco. Use commits curtos e descritivos no padrão `<tipo>: <resumo>` (por exemplo, `docs: atualizar guia do app`).
 
-- **Licença:** ADICIONAR INFORMAÇÃO — confirmar licença antes de distribuir.
-- **Autor(es):** ADICIONAR NOME DO AUTOR.
-- **Instituição:** ADICIONAR NOME DA INSTITUIÇÃO.
+- **Autor(es):** Bruno Gomes de Albuquerque Costa.
+- **Instituição:** FitBeacon.
 
-### Prints pendentes
-
-- `docs/img/app-inicio-claro.png`, `docs/img/app-inicio-escuro.png`
-- `docs/img/app-equipamento-claro.png`, `docs/img/app-equipamento-escuro.png`
-- `docs/img/app-treino-claro.png`, `docs/img/app-treino-escuro.png`
-- `docs/img/app-historico-claro.png`, `docs/img/app-historico-escuro.png`
-- `docs/img/app-configuracoes-claro.png`, `docs/img/app-configuracoes-escuro.png`
-- `docs/img/app-diagnostico-mapa-claro.png`, `docs/img/app-diagnostico-mapa-escuro.png`
-- `docs/img/painel-dashboard-claro.png`, `docs/img/painel-dashboard-escuro.png`
-- `docs/img/painel-calor-claro.png`, `docs/img/painel-calor-escuro.png`
-- `docs/img/painel-mapa-claro.png`, `docs/img/painel-mapa-escuro.png`
-- `docs/img/painel-catalogo-claro.png`, `docs/img/painel-catalogo-escuro.png`
-- `docs/img/painel-relatorios-claro.png`, `docs/img/painel-relatorios-escuro.png`
