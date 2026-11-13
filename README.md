@@ -54,19 +54,17 @@ As imagens abaixo ainda precisam ser capturadas em um dispositivo e adicionadas 
 
 | Tela | Claro | Escuro |
 |---|---|---|
-| Início do app | ADICIONAR PRINT: `docs/img/app-inicio-claro.png` | ADICIONAR PRINT: `docs/img/app-inicio-escuro.png` |
-| Equipamento | ADICIONAR PRINT: `docs/img/app-equipamento-claro.png` | ADICIONAR PRINT: `docs/img/app-equipamento-escuro.png` |
-| Treino e séries | ADICIONAR PRINT: `docs/img/app-treino-claro.png` | ADICIONAR PRINT: `docs/img/app-treino-escuro.png` |
-| Histórico | ADICIONAR PRINT: `docs/img/app-historico-claro.png` | ADICIONAR PRINT: `docs/img/app-historico-escuro.png` |
-| Perfil e configurações | ADICIONAR PRINT: `docs/img/app-configuracoes-claro.png` | ADICIONAR PRINT: `docs/img/app-configuracoes-escuro.png` |
-| Diagnóstico e mapa | ADICIONAR PRINT: `docs/img/app-diagnostico-mapa-claro.png` | ADICIONAR PRINT: `docs/img/app-diagnostico-mapa-escuro.png` |
-| Visão geral | ADICIONAR PRINT: `docs/img/painel-dashboard-claro.png` | ADICIONAR PRINT: `docs/img/painel-dashboard-escuro.png` |
-| Mapa de calor | ADICIONAR PRINT: `docs/img/painel-calor-claro.png` | ADICIONAR PRINT: `docs/img/painel-calor-escuro.png` |
-| Mapa da academia | ADICIONAR PRINT: `docs/img/painel-mapa-claro.png` | ADICIONAR PRINT: `docs/img/painel-mapa-escuro.png` |
-| Gestão de equipamentos, áreas e exercícios | ADICIONAR PRINT: `docs/img/painel-catalogo-claro.png` | ADICIONAR PRINT: `docs/img/painel-catalogo-escuro.png` |
-| Relatórios e CSV | ADICIONAR PRINT: `docs/img/painel-relatorios-claro.png` | ADICIONAR PRINT: `docs/img/painel-relatorios-escuro.png` |
+| Início do app | <img src="docs/img/app-inicio-claro.jpeg" alt="Tela inicial do aplicativo no tema claro" width="180"> | <img src="docs/img/TELA INICIAL ESCURO.jpeg" alt="Tela inicial do aplicativo no tema escuro" width="180"> |
+| Equipamento | <img src="docs/img/app-equipamento-claro.jpeg" alt="Tela de equipamentos no tema claro" width="180"> | <img src="docs/img/app-equipamento-escuro.jpeg" alt="Tela de equipamentos no tema escuro" width="180">|
+| Treino e séries | <img src="docs/img/app-treino-claro.jpeg" alt="Tela de treino no tema claro" width="180"> | <img src="docs/img/app-treino-escuro.jpeg" alt="Tela de treino no tema escuro" width="180"> |
+| Histórico | <img src="docs/img/app-historico-claro.jpeg" alt="Histórico de treinos no tema claro" width="180"> |<img src="docs/img/app-historico-escuro.jpeg" alt="Histórico de treinos no tema escuro" width="180">|
+| Perfil e configurações | <img src="docs/img/app-configuracoes-claro.jpeg" alt="Perfil no tema claro" width="180"> | <img src="docs/img/app-configuracoes-escuro.jpeg" alt="Perfil no tema escuro" width="180"> |
+| Visão geral | <img src="docs/img/painel-dashboard-claro.png" alt="Painel visão geral no tema claro" width="180"> |<img src="docs/img/painel-dashboard-escuro.png" alt="Painel visão geral no tema escuro" width="180"> |
+| Mapa de calor | <img src="docs/img/painel-calor-claro.png" alt="Mapa de calor no tema claro" width="180">| <img src="docs/img/painel-calor-escuro.png" alt="Mapa de calor no tema escuro" width="180"> |
+| Mapa da academia | <img src="docs/img/painel-mapa-claro.png" alt="Mapa da academia no tema claro" width="180"> | <img src="docs/img/painel-mapa-escuro.png" alt="Mapa da academia no tema escuro" width="180"> |
+| Gestão de equipamentos, áreas e exercícios | <img src="docs/img/painel-catalogo-claro.png" alt="Gestão de equipamentos no tema claro" width="180"> | <img src="docs/img/painel-catalogo-escuro.png" alt="Gestão de equipamentos no tema escuro" width="180"> |
+| Relatórios e CSV | <img src="docs/img/painel-relatorios-claro.png" alt="Relatórios no tema claro" width="180"> | <img src="docs/img/painel-relatorios-escuro.png" alt="Relatórios no tema escuro" width="180"> |
 
-O painel tem capturas automatizadas de navegador em `web/e2e/__screenshots__/`; elas são evidência de teste, não substituem as capturas finais a serem selecionadas para `docs/img/`. Para paleta, marcas e acessibilidade, consulte [a especificação visual](./docs/design/ESPECIFICACAO_VISUAL.md).
 
 ## Como funciona
 
