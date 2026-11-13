@@ -50,8 +50,6 @@ Detalhes operacionais: [app/README.md](./app/README.md), [api/README.md](./api/R
 
 ## Telas e galeria
 
-As imagens abaixo ainda precisam ser capturadas em um dispositivo e adicionadas ao repositório. Os marcadores são intencionais; a lista completa também aparece no fim deste README.
-
 | Tela | Claro | Escuro |
 |---|---|---|
 | Início do app | <img src="docs/img/app-inicio-claro.jpeg" alt="Tela inicial do aplicativo no tema claro" width="180"> | <img src="docs/img/TELA INICIAL ESCURO.jpeg" alt="Tela inicial do aplicativo no tema escuro" width="180"> |
